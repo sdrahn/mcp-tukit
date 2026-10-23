@@ -1,8 +1,8 @@
 #!/bin/bash
 # Functional tests of mcp-server-tukit behind mcp-gateway on a real
 # transactional system (openSUSE MicroOS, Leap Micro, SL Micro, SLES 16.1
-# in immutable mode) with SELinux enforcing: the domain, account and MCS
-# pair of the instances, the D-Bus policy, the roles and approvals, and
+# in immutable mode) with SELinux enforcing: the privileged instance in
+# its SELinux domain, the roles and approvals, and
 # real changes through tukitd: a package installed into a new snapshot,
 # active after a reboot, a rollback, deleting and cleaning up snapshots,
 # and no SELinux denials. Package mcp-server-tukit-tests installs it as
@@ -111,8 +111,13 @@ has_type() { [[ $1 == *":$2:"* ]]; }
 proc_has_type() { has_type "$(label "$1")" "$2"; }
 file_has_type() { has_type "$(file_label "$1")" "$2"; }
 categories() { sed -n 's/.*:s0:\(c[0-9]*,c[0-9]*\)$/\1/p' <<<"$1"; }
-no_capabilities() { grep -q '^CapEff:[[:space:]]*0000000000000000' "/proc/$1/status"; }
-no_new_privs() { grep -q '^NoNewPrivs:[[:space:]]*1' "/proc/$1/status"; }
+# has_sys_admin <pid>: the process holds CAP_SYS_ADMIN (bit 21), which
+# tukitd requires of its callers.
+has_sys_admin() {
+	local caps
+	caps=$(sed -n 's/^CapEff:[[:space:]]*//p' "/proc/$1/status" 2>/dev/null)
+	[ -n "$caps" ] && (((0x$caps >> 21) & 1))
+}
 
 # The snapshots as tukit itself lists them, independent of the server:
 # "number default active" per line.
@@ -248,17 +253,19 @@ phase1() {
 	# program was installed before its module, chapter 2 of the gateway's
 	# user guide).
 	check "/usr/bin/mcp-server-tukit is labeled mcpsrv_tukit_exec_t" file_has_type /usr/bin/mcp-server-tukit mcpsrv_tukit_exec_t
-	check "the account mcp-tukit exists" id mcp-tukit
-	check "the account has no login shell" bash -c '[[ $(getent passwd mcp-tukit | cut -d: -f7) == */nologin ]]'
-	check "the D-Bus policy for mcp-tukit is installed" test -f /usr/share/dbus-1/system.d/mcp-tukit.conf
-	check "the definition is installed" test -f /usr/share/mcp-gateway/servers.d/tukit.yaml
+	local def=/usr/share/mcp-gateway/profiles/tukit-privileged.yaml
+	check "the privileged definition is installed" test -f "$def"
+	# A package never makes a server privileged by itself (mcp-gateway
+	# accepts privileged definitions only from /etc).
+	check "no definition is active from the package alone" test ! -e /usr/share/mcp-gateway/servers.d/tukit.yaml
 	check "the roles are installed" test -f /usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
 	local unit=/usr/lib/systemd/system/mcp-tukit-reboot.service
 	echo "  $(file_label "$unit") $unit"
 	check "the reboot unit is installed" test -f "$unit"
 	check "the reboot unit is labeled mcpsrv_tukit_unit_t" file_has_type "$unit" mcpsrv_tukit_unit_t
-	check "the polkit rule for the reboot unit is installed" test -f /usr/share/polkit-1/rules.d/60-mcp-tukit.rules
-	check "mcp-gateway --check accepts the definition" bash -c 'mcp-gateway --check >/dev/null 2>&1'
+	# The administrator enables it, as the definition says.
+	ln -sf "$def" /etc/mcp-gateway/servers.d/tukit.yaml
+	check "mcp-gateway --check accepts the definition linked into /etc" bash -c 'mcp-gateway --check >/dev/null 2>&1'
 	check "mcp-server-tukit --version" bash -c 'mcp-server-tukit -version | grep -q "^mcp-server-tukit "'
 
 	section "Users and policy"
@@ -313,19 +320,17 @@ EOF
 	echo "  instance ${pid:-none}: $ctx, user $(proc_user "${pid:-0}")"
 	check "an instance runs" test -n "$pid"
 	check "it runs in mcpsrv_tukit_t" proc_has_type "${pid:-0}" mcpsrv_tukit_t
-	check "it runs as mcp-tukit" test "$(proc_user "${pid:-0}")" = mcp-tukit
-	check "it has an MCS category pair" test -n "$(categories "$ctx")"
-	check "it has no capabilities" no_capabilities "${pid:-0}"
-	check "it runs with no_new_privs" no_new_privs "${pid:-0}"
+	check "it runs as root (privileged)" test "$(proc_user "${pid:-0}")" = root
+	check "it holds CAP_SYS_ADMIN, which tukitd requires" has_sys_admin "${pid:-0}"
+	check "it has no MCS pair (privileged: what tukitd makes stays readable)" test -z "$(categories "$ctx")"
 	check "the gateway's doctor finds nothing failing for tukit" \
 		bash -c '! mcp-gateway-admin doctor --server tukit 2>&1 | tee /dev/stderr | grep -qE "^fail"'
 
-	section "D-Bus policy"
-	# tukitd's own policy allows root only; the package's adds mcp-tukit.
+	section "tukitd access"
+	# tukitd answers only callers with CAP_SYS_ADMIN (sd-bus's check on
+	# every method): a user cannot use it, whatever the bus policy says.
 	local list='call org.opensuse.tukit /org/opensuse/tukit/Snapshot org.opensuse.tukit.Snapshot List s number'
 	# shellcheck disable=SC2086 # list is the busctl arguments
-	check "mcp-tukit may call tukitd" runuser -u mcp-tukit -- busctl --system $list
-	# shellcheck disable=SC2086
 	runuser -u rita -- busctl --system $list 2>&1 | sed 's/^/  rita: /'
 	# shellcheck disable=SC2086
 	check "a user may not call tukitd" fails runuser -u rita -- busctl --system $list
@@ -405,10 +410,15 @@ phasereboot() {
 	tool_approved tuki reboot "{\"snapshot\":\"$active\"}"
 	check "a reboot into a snapshot that is not the default is refused" tool_error_with "is not the default"
 	check "... and the reboot unit did not start" test "$(unit_state)" = inactive
-	# The unit's start alone, as mcp-tukit, outside the gateway: polkit
-	# allows the account this unit only.
-	check "mcp-tukit may not start another unit" fails runuser -u mcp-tukit -- \
-		busctl --system call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager StartUnit ss sshd.service replace
+	# The domain may start this unit and no other: the policy's only
+	# service rule for it names the unit's own type.
+	if command -v sesearch >/dev/null; then
+		sesearch -A -s mcpsrv_tukit_t -c service 2>/dev/null | sed 's/^/  /'
+		check "the domain may start the reboot unit only" bash -c \
+			'r=$(sesearch -A -s mcpsrv_tukit_t -c service 2>/dev/null); [ -n "$r" ] && ! grep -v mcpsrv_tukit_unit_t <<<"$r" | grep -q allow'
+	else
+		skip "the domain's service rules (no sesearch, package setools-console)"
+	fi
 	cat /proc/sys/kernel/random/boot_id >"$state/boot_id"
 	printf 'reboot_since=%s\n' "$since" >"$state/reboot"
 	tool_approved tuki reboot "{\"snapshot\":\"$snap\"}"
@@ -495,8 +505,10 @@ phase2() {
 	section "Commands in a snapshot"
 	# -allow-commands, as an administrator enables it: a definition of the
 	# same name in /etc replaces the package's.
+	local def=/usr/share/mcp-gateway/profiles/tukit-privileged.yaml
+	rm -f /etc/mcp-gateway/servers.d/tukit.yaml
 	sed 's|^command: .*|command: ["/usr/bin/mcp-server-tukit", "-allow-commands"]|' \
-		/usr/share/mcp-gateway/servers.d/tukit.yaml >/etc/mcp-gateway/servers.d/tukit.yaml
+		"$def" >/etc/mcp-gateway/servers.d/tukit.yaml
 	systemctl reload mcp-gateway.service
 	eventually 30 bash -c "runuser -u tuki -- '$dir/tukitcall' --method tools/list | grep -q run_in_snapshot"
 	call tuki --method tools/list
@@ -507,7 +519,7 @@ phase2() {
 	check "a failing command: failed" test "$rc" = 2 -a "$(structured exit_code)" = 3
 	check "... the snapshot was discarded" test "$(snapshot_count)" = "$count"
 	check "... the default is unchanged" test "$(default_snapshot)" = "$default"
-	rm -f /etc/mcp-gateway/servers.d/tukit.yaml
+	ln -sf "$def" /etc/mcp-gateway/servers.d/tukit.yaml
 	systemctl reload mcp-gateway.service
 
 	denials_section

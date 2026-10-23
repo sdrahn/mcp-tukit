@@ -4,10 +4,11 @@
 //
 // The server does none of the privileged work itself: tukitd creates
 // the snapshot, mounts it, runs the command in it (chrooted) and sets it
-// as the next default. That keeps the server's own process unprivileged
-// (no capabilities, no mounts, no btrfs ioctls), so it can run in the
-// gateway's sandbox and a small SELinux domain whose only way to the
-// system is the D-Bus chat with tukitd.
+// as the next default. The server's process needs no mounts, no btrfs
+// ioctls and no files, so its SELinux domain allows it little more than
+// the D-Bus chat with tukitd. tukitd answers only callers with
+// CAP_SYS_ADMIN, though, so the process holds it (a privileged server
+// behind mcp-gateway) without using it.
 package tukit
 
 import (

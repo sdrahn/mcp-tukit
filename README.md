@@ -10,29 +10,38 @@ It installs, removes and updates packages in new snapshots of the root
 file system, shows the snapshots and whether a reboot is pending, rolls
 back, and cleans up, the way `transactional-update` does. It is written
 in Go and meant to run behind
-[mcp-gateway](https://github.com/sdrahn/mcp-gateway), in its sandbox and
-an SELinux domain of its own, with SELinux enforcing.
+[mcp-gateway](https://github.com/sdrahn/mcp-gateway), as a privileged
+server confined by an SELinux domain of its own, with SELinux enforcing.
 
 Status: first version (0.1). Tested against a fake tukitd on a private
-D-Bus and with the gateway's `inspect`; the functional tests for real
-transactional systems (CI's MicroOS VM, openQA) are written and not yet
-run.
+D-Bus, with the gateway's `inspect`, and by the functional tests in CI's
+MicroOS VM (openQA planned).
 
 ## How it works
 
 ```
 agent ──MCP──▶ mcp-gateway ──stdio──▶ mcp-server-tukit ──D-Bus──▶ tukitd ──▶ snapshot (zypper, chrooted)
                policy, approvals       mcpsrv_tukit_t                unconfined_service_t
-                                       account mcp-tukit, sandbox    (root)
+                                       root, privileged              (root)
 ```
 
 The server does **none of the privileged work itself**. Every tool is a
 call to tukitd (`org.opensuse.tukit` on the system bus), which creates
 the snapshot, mounts it, runs zypper in it and makes it the next
-default. So the server process needs no capabilities, no mounts, no
-btrfs ioctls and no network, and runs in the gateway's normal sandbox
-(not as a `privileged` server). Its SELinux domain needs the gateway's
-backend baseline plus the D-Bus chat with tukitd, and nothing else.
+default. The server process needs no mounts, no btrfs ioctls, no files
+and no network: its SELinux domain allows the gateway's backend
+baseline, the D-Bus chat with tukitd, and starting the reboot unit, and
+nothing else.
+
+It still runs as a **privileged** server (root, all capabilities, no
+MCS pair): tukitd registers its D-Bus methods without
+`SD_BUS_VTABLE_UNPRIVILEGED`, so sd-bus answers only callers holding
+`CAP_SYS_ADMIN`, whatever the bus policy says. The capability is what
+tukitd checks; the server never uses it, and the domain does not allow
+it to. Landlock keeps the instance from writing anywhere as a second
+wall. A sandboxed instance with only `CAP_SYS_ADMIN` would be tighter;
+that needs an option in mcp-gateway (planned), or tukitd marking its
+methods unprivileged and leaving access to the bus policy.
 
 A change goes as `transactional-update` does it:
 
@@ -99,10 +108,10 @@ with an approval of its own for every call (role `tukit-operator`, scope
   method.
 - The unit waits 10 s before it reboots, so that the answer reaches the
   agent; the agent's connection ends with the reboot.
-- The account may start this unit and nothing else: a polkit rule
-  (`org.freedesktop.systemd1.manage-units` for this unit and the verb
-  `start` only) and SELinux (the domain may start units of the type
-  `mcpsrv_tukit_unit_t` only, which only this unit file has).
+- The server may start this unit and nothing else: SELinux allows the
+  domain `service start` on the type `mcpsrv_tukit_unit_t` only, which
+  only this unit file has. (systemd lets a caller with `CAP_SYS_ADMIN`
+  start units without asking polkit.)
 - `-reboot-unit ""` turns the tool off.
 
 Options: `-base` (default base snapshot), `-timeout`, `-zypper` (path
@@ -117,13 +126,19 @@ snapshots), `-version`.
 
 | File | Installed as |
 |---|---|
-| `dist/gateway/tukit.yaml` | `/usr/share/mcp-gateway/servers.d/tukit.yaml` — server `tukit`, `run_as: mcp-tukit`, `selinux_type: mcpsrv_tukit_t`, no network, Landlock (system read-only, no writes) |
+| `dist/gateway/tukit-privileged.yaml` | `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` — server `tukit`, `run_as: root`, `privileged: true`, `selinux_type: mcpsrv_tukit_t`, no network, Landlock (system read-only, no writes); takes effect once linked into `/etc/mcp-gateway/servers.d` (below) |
 | `dist/gateway/roles.yaml` | `/usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml` — roles `tukit-reader` and `tukit-operator` |
-| `dist/dbus/mcp-tukit.conf` | `/usr/share/dbus-1/system.d/mcp-tukit.conf` — lets `mcp-tukit` call tukitd |
-| `dist/sysusers.d/mcp-tukit.conf` | `/usr/lib/sysusers.d/mcp-tukit.conf` — the account |
 | `dist/systemd/mcp-tukit-reboot.service` | `/usr/lib/systemd/system/mcp-tukit-reboot.service` — the reboot (`transactional-update reboot`) |
-| `dist/polkit/mcp-tukit.rules` | `/usr/share/polkit-1/rules.d/60-mcp-tukit.rules` — lets `mcp-tukit` start that unit, nothing else |
 | `dist/selinux/mcp_tukit.{te,fc}` | module `mcp_tukit` (package `mcp-server-tukit-selinux`) |
+
+The gateway accepts privileged servers only from the administrator's
+directory, so installing the package never creates one. Enable it as
+for the privileged zypp and snapper servers:
+
+```bash
+ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+systemctl reload mcp-gateway.service
+```
 
 ### Who may do what
 
@@ -134,15 +149,15 @@ The three layers of the gateway's chapter 13 apply:
   `tukit-operator` gets those and every change **with approval**
   (out-of-band, in Cockpit); `rollback`, `reboot` and `run_in_snapshot`
   need an approval of their own each time (scope `once`).
-- **The D-Bus policy** decides which account may call tukitd. tukitd
-  itself allows only root and checks nothing beyond the bus policy; the
-  shipped policy adds the dedicated account `mcp-tukit`, which only the
-  gateway uses. Note that whoever can act as `mcp-tukit` can run
-  commands as root in new snapshots: the gateway's roles and approvals
-  are what guard that.
-- **tukitd** does the work as root, outside the instance's sandbox.
-- **polkit** lets the account start the reboot unit, nothing else; the
-  unit reboots as root.
+- **tukitd** answers callers with `CAP_SYS_ADMIN` only, and does the
+  work as root. The gateway's privileged server is the only such caller
+  it gets through MCP; whoever can call it can run commands as root in
+  new snapshots, so the gateway's roles and approvals are what guard
+  that (a privileged server's calls are allowed without approval only
+  by permissions naming server and tool without wildcards, and every
+  decision on it goes to the kernel audit log).
+- **SELinux** keeps the privileged instance to the D-Bus chat with
+  tukitd and starting the reboot unit.
 
 Bind users or groups to the roles in the gateway's role data:
 
@@ -223,9 +238,9 @@ versions up to 2025-11-25, cancellation, progress).
 - Changes to `/etc` overlays are handled by tukit; files below `/etc`,
   `/var` and `/home` are not this server's business (they are writable
   on the running system).
-- The SUSE security team reviews D-Bus policy files shipped in
-  packages (rpmlint); `mcp-tukit.conf` will need that review before
-  Factory/SLE.
+- A sandboxed instance holding only `CAP_SYS_ADMIN`, instead of a
+  privileged one: an option for that in mcp-gateway (follow-up), or
+  tukitd marking its methods `SD_BUS_VTABLE_UNPRIVILEGED` upstream.
 - Possibly moving `dist/gateway` into mcp-gateway's `profiles/` as
   `mcp-gateway-profile-tukit`, like the other system management servers.
 

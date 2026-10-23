@@ -40,9 +40,10 @@ reboot
 
 - **Three phases; the reboot is the server's own.** Phase 1 sets up users
   (`tuki`, operator; `rita`, reader; `ned`, no role), starts the
-  gateway, checks the instance (domain `mcpsrv_tukit_t`, account
-  `mcp-tukit`, an MCS pair, no capabilities, no_new_privs), the D-Bus
-  policy (`mcp-tukit` may call tukitd, a user may not), the roles
+  links the privileged definition into `/etc/mcp-gateway/servers.d`
+  (the package alone activates nothing), starts the gateway, checks the
+  instance (domain `mcpsrv_tukit_t`, root with `CAP_SYS_ADMIN`, which
+  tukitd requires, no MCS pair), that a user cannot call tukitd, the roles
   (readers read, nobody else does anything) and the approvals, then
   installs a package into a new snapshot after an approval; installs it
   again (nothing to do: no snapshot kept) and a package that does not
@@ -52,8 +53,8 @@ reboot
   cleanup, and `run_in_snapshot` after the administrator enables it
   (a failing command leaves no snapshot); again no denials. Between
   them, the reboot phase: a reader may not reboot, a reboot into a
-  snapshot that is not the default is refused, `mcp-tukit` may start no
-  other unit (polkit), and then, after an approval, the reboot tool
+  snapshot that is not the default is refused, the domain may start no
+  other unit (SELinux, with `sesearch`), and then, after an approval, the reboot tool
   reboots into phase 1's snapshot with `transactional-update reboot`.
   Phase 2 checks that the system was rebooted, through the tool's unit
   (when the journal is persistent), and that a reboot with nothing

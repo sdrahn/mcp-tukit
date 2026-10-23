@@ -13,7 +13,7 @@ const (
 	systemdIface = "org.freedesktop.systemd1.Manager"
 )
 
-// SystemdError is an error systemd (or polkit, which it asks) reported.
+// SystemdError is an error systemd reported.
 type SystemdError struct {
 	Unit    string
 	Name    string
@@ -25,15 +25,15 @@ func (e *SystemdError) Error() string {
 	case "org.freedesktop.systemd1.NoSuchUnit":
 		return "systemd: there is no unit " + e.Unit + " (package mcp-server-tukit-gateway installs it)"
 	case "org.freedesktop.DBus.Error.AccessDenied", "org.freedesktop.DBus.Error.InteractiveAuthorizationRequired":
-		return "systemd refused to start " + e.Unit + ": polkit does not allow this account to (the rule of package mcp-server-tukit-gateway allows mcp-tukit this unit only), or SELinux denied it: " + e.Message
+		return "systemd refused to start " + e.Unit + " (the server must run privileged, and SELinux allows mcpsrv_tukit_t this unit only): " + e.Message
 	}
 	return "systemd: " + e.Name + ": " + e.Message
 }
 
 // StartUnit starts unit through systemd's manager (mode "replace") and
-// returns the job's path. systemd asks polkit
-// (org.freedesktop.systemd1.manage-units, with the unit and the verb) and
-// checks the SELinux service class on the unit file's type.
+// returns the job's path. systemd lets a caller with CAP_SYS_ADMIN start
+// units (others it asks polkit about) and checks the SELinux service
+// class on the unit file's type.
 func (c *Client) StartUnit(ctx context.Context, unit string) (string, error) {
 	var job dbus.ObjectPath
 	err := c.conn.Object(systemdName, systemdPath).CallWithContext(ctx, systemdIface+".StartUnit", 0, unit, "replace").Store(&job)

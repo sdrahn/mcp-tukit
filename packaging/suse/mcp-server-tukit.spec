@@ -24,14 +24,9 @@ Source99:       %{name}-rpmlintrc
 BuildRequires:  bzip2
 BuildRequires:  golang(API) >= 1.24
 BuildRequires:  make
-# Owns /usr/share/polkit-1/rules.d, where the rule goes (the file list
-# check needs an owner in the build root; filesystem owns it with other
-# attributes on Tumbleweed, so this package does not).
-BuildRequires:  polkit
 # mcp_gateway_backend_template, from the gateway's interface file.
 BuildRequires:  mcp-gateway-selinux
 BuildRequires:  selinux-policy-devel
-BuildRequires:  sysuser-tools
 BuildRequires:  systemd-rpm-macros
 # The server only talks to tukitd; tukitd does the work.
 Requires:       tukitd
@@ -41,8 +36,8 @@ An MCP server (stdio) for immutable SUSE systems (openSUSE MicroOS, Leap
 Micro, SL Micro, SLES 16.1 in immutable mode): installs, removes and
 updates packages in new snapshots as transactional-update does, lists
 snapshots, rolls back and cleans up, through tukitd on the system bus.
-It holds no privileges of its own and is meant to run behind mcp-gateway
-(package mcp-server-tukit-gateway).
+It is meant to run behind mcp-gateway, as a privileged server confined
+by its SELinux domain (package mcp-server-tukit-gateway).
 
 %package gateway
 Summary:        mcp-server-tukit behind mcp-gateway
@@ -51,20 +46,20 @@ BuildArch:      noarch
 Requires:       %{name} = %{version}
 Requires:       mcp-gateway
 Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
-# The reboot unit runs transactional-update reboot; polkit lets the
-# account start that unit only.
-Requires:       polkit
+# The reboot unit runs transactional-update reboot.
 Requires:       transactional-update
-%sysusers_requires
 %{?systemd_ordering}
 
 %description gateway
 Sets up mcp-server-tukit behind mcp-gateway: the server definition
-(server tukit, in the gateway's sandbox as the account mcp-tukit, SELinux
-domain mcpsrv_tukit_t), the roles tukit-reader and tukit-operator (every
-change approved), the D-Bus policy that lets mcp-tukit call tukitd, and
-for the reboot tool the unit mcp-tukit-reboot.service (transactional-update
-reboot) with a polkit rule that lets mcp-tukit start that unit only.
+(server tukit, a privileged server in the SELinux domain mcpsrv_tukit_t,
+since tukitd answers only callers with CAP_SYS_ADMIN), the roles
+tukit-reader and tukit-operator (every change approved), and for the
+reboot tool the unit mcp-tukit-reboot.service (transactional-update
+reboot), the only unit the domain may start. The definition takes effect
+once the administrator links it into /etc/mcp-gateway/servers.d:
+  ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml \
+        /etc/mcp-gateway/servers.d/tukit.yaml
 
 %package selinux
 Summary:        SELinux policy module for mcp-server-tukit
@@ -118,12 +113,11 @@ testing.
 export GOFLAGS="-mod=vendor"
 %make_build build build-tests VERSION=%{version}
 make selinux
-%sysusers_generate_pre dist/sysusers.d/mcp-tukit.conf %{name}-gateway mcp-tukit.conf
 
 %install
 export GOFLAGS="-mod=vendor"
 %make_install install install-tests install-selinux VERSION=%{version} PREFIX=%{_prefix} \
-    LIBEXECDIR=%{_libexecdir} SYSUSERSDIR=%{_sysusersdir} UNITDIR=%{_unitdir} \
+    LIBEXECDIR=%{_libexecdir} UNITDIR=%{_unitdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
 
 %check
@@ -131,7 +125,7 @@ export GOFLAGS="-mod=vendor"
 # The tukit client's tests start a private dbus-daemon, and skip without.
 go test ./...
 
-%pre gateway -f %{name}-gateway.pre
+%pre gateway
 %service_add_pre mcp-tukit-reboot.service
 
 %post gateway
@@ -167,18 +161,13 @@ fi
 # The gateway owns these directories too; this package does not require
 # it at build time.
 %dir %{_datadir}/mcp-gateway
-%dir %{_datadir}/mcp-gateway/servers.d
+%dir %{_datadir}/mcp-gateway/profiles
 %dir %{_datadir}/mcp-gateway/policy
 %dir %{_datadir}/mcp-gateway/policy/mcp
 %dir %{_datadir}/mcp-gateway/policy/mcp/profiles
-%{_datadir}/mcp-gateway/servers.d/tukit.yaml
+%{_datadir}/mcp-gateway/profiles/tukit-privileged.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/tukit
-%dir %{_datadir}/dbus-1
-%dir %{_datadir}/dbus-1/system.d
-%{_datadir}/dbus-1/system.d/mcp-tukit.conf
-%{_sysusersdir}/mcp-tukit.conf
 %{_unitdir}/mcp-tukit-reboot.service
-%{_datadir}/polkit-1/rules.d/60-mcp-tukit.rules
 
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}

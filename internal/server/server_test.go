@@ -402,7 +402,7 @@ func TestReboot(t *testing.T) {
 
 	// systemd's refusal is the tool's error.
 	f = &fake{list: snaps, unitErr: &tukit.SystemdError{Unit: unit, Name: "org.freedesktop.DBus.Error.AccessDenied", Message: "denied"}}
-	if r := call(t, New(Config{RebootUnit: unit}, f), context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "polkit") {
+	if r := call(t, New(Config{RebootUnit: unit}, f), context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "must run privileged") {
 		t.Fatalf("refused by systemd: %v", r)
 	}
 

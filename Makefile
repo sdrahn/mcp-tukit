@@ -12,9 +12,7 @@ PREFIX      ?= /usr
 BINDIR      ?= $(PREFIX)/bin
 LIBEXECDIR  ?= $(PREFIX)/libexec
 DATADIR     ?= $(PREFIX)/share
-SYSUSERSDIR ?= $(PREFIX)/lib/sysusers.d
 UNITDIR     ?= $(PREFIX)/lib/systemd/system
-POLKITRULESDIR ?= $(DATADIR)/polkit-1/rules.d
 SELINUXTYPE ?= targeted
 SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 SELINUX_DEVEL ?= $(DATADIR)/selinux/devel/Makefile
@@ -62,12 +60,9 @@ dist/selinux/mcp_tukit.pp: dist/selinux/mcp_tukit.te dist/selinux/mcp_tukit.fc
 
 install: build
 	install -Dm0755 bin/mcp-server-tukit $(DESTDIR)$(BINDIR)/mcp-server-tukit
-	install -Dm0644 dist/gateway/tukit.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/tukit.yaml
+	install -Dm0644 dist/gateway/tukit-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/tukit-privileged.yaml
 	install -Dm0644 dist/gateway/roles.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
-	install -Dm0644 dist/dbus/mcp-tukit.conf $(DESTDIR)$(DATADIR)/dbus-1/system.d/mcp-tukit.conf
-	install -Dm0644 dist/sysusers.d/mcp-tukit.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-tukit.conf
 	install -Dm0644 dist/systemd/mcp-tukit-reboot.service $(DESTDIR)$(UNITDIR)/mcp-tukit-reboot.service
-	install -Dm0644 dist/polkit/mcp-tukit.rules $(DESTDIR)$(POLKITRULESDIR)/60-mcp-tukit.rules
 
 install-tests: build-tests
 	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-server-tukit/tests/run-tests.sh

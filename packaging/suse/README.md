@@ -43,15 +43,17 @@ configuration.
 | Package | Contents |
 |---|---|
 | `mcp-server-tukit` | the server, `/usr/bin/mcp-server-tukit`; requires `tukitd` |
-| `mcp-server-tukit-gateway` | the gateway setup: definition `/usr/share/mcp-gateway/servers.d/tukit.yaml`, roles `tukit-reader` and `tukit-operator`, the D-Bus policy `/usr/share/dbus-1/system.d/mcp-tukit.conf`, the account `mcp-tukit` (sysusers), the reboot tool's unit `mcp-tukit-reboot.service` (`transactional-update reboot`) and the polkit rule `60-mcp-tukit.rules` that lets the account start it; requires `mcp-gateway`, `polkit`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
+| `mcp-server-tukit-gateway` | the gateway setup: the privileged definition `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` (the administrator links it into `/etc/mcp-gateway/servers.d`), roles `tukit-reader` and `tukit-operator`, and the reboot tool's unit `mcp-tukit-reboot.service` (`transactional-update reboot`); requires `mcp-gateway`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
 | `mcp-server-tukit-selinux` | the module `mcp_tukit` (domain `mcpsrv_tukit_t`), installed with the `%selinux_*` macros; requires `mcp-gateway-selinux` |
-| `mcp-server-tukit-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1|2 --results DIR`, TAP and JUnit results) and their client; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
+| `mcp-server-tukit-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1|reboot|2 --results DIR`, TAP and JUnit results) and their client; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
 
 On a transactional system:
 
 ```bash
 transactional-update pkg install mcp-server-tukit-gateway
 reboot
+ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+systemctl reload mcp-gateway.service
 ```
 
 All in one transaction: an SELinux module installed in a transaction
@@ -62,20 +64,12 @@ keeps the wrong label (mcp-gateway user guide, chapter 2).
 
 - **mcp-gateway first:** the package builds against
   `mcp-gateway-selinux` and is useful only with the gateway.
-- **D-Bus policy:** `mcp-tukit.conf` allows the account `mcp-tukit` to
-  call tukitd, which otherwise allows root only. D-Bus policy files need
-  review and whitelisting by the SUSE security team (a bug for the
-  security team's D-Bus audit); `mcp-server-tukit-rpmlintrc` filters
-  the rpmlint errors only to keep devel and home builds working. The
-  argument for the review: only the gateway starts processes as
-  `mcp-tukit` (no login, no shell), its policy makes every change wait
-  for a human's approval, and the server's process runs without
-  capabilities in a confined domain.
-- **polkit rule:** `60-mcp-tukit.rules` lets `mcp-tukit` start
-  `mcp-tukit-reboot.service` (and nothing else) without a password;
-  polkit rules need the security team's review and whitelisting too
-  (rpmlintrc filters as for the D-Bus policy). Same argument: every
-  reboot waits for its own approval.
+- **No D-Bus policy or polkit rule:** the server reaches tukitd as a
+  privileged (root) server, which tukitd's own policy allows, and
+  systemd lets it start the reboot unit without polkit; nothing in the
+  package needs the security team's whitelisting. The package installs
+  no active server: the administrator enables the privileged
+  definition, as for mcp-gateway's privileged zypp and snapper servers.
 - **Licenses:** MIT; the binary also contains the vendored godbus
   (BSD-2-Clause), stated in `License:`.
 - **openQA:** the test module and its plan are in

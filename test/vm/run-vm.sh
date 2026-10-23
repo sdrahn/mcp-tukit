@@ -1,5 +1,5 @@
 #!/bin/bash
-# Boots a transactional openSUSE image (MicroOS, Leap Micro) with
+# Boots a transactional openSUSE image (MicroOS; CI) with
 # QEMU/KVM, installs the packages built from this tree into a new
 # snapshot with transactional-update (prepare.sh), reboots, and runs the
 # functional tests of mcp-server-tukit-tests: phase 1, the reboot phase

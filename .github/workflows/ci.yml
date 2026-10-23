@@ -196,16 +196,11 @@ jobs:
           - distro: tumbleweed
             name: openSUSE MicroOS
             image_url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-MicroOS.x86_64-kvm-and-xen.qcow2
-            experimental: false
-          # Leap Micro 6.2 with the Leap 16.0 build until the OBS project
-          # builds for it.
-          - distro: leap16
-            name: openSUSE Leap Micro 6.2
-            image_url: https://download.opensuse.org/distribution/leap-micro/6.2/appliances/openSUSE-Leap-Micro.x86_64-Default-qcow.qcow2
-            experimental: true
+          # Leap Micro and SL Micro: openQA (test/openqa). The Leap Micro 6.2
+          # Default image boots into the initrd's emergency shell under this
+          # QEMU setup, with nothing on the serial console to say why.
     runs-on: ubuntu-24.04
     timeout-minutes: 75
-    continue-on-error: ${{ matrix.experimental }}
     steps:
       - uses: actions/checkout@v4
       - uses: open-policy-agent/setup-opa@v2

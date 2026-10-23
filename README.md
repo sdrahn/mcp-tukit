@@ -208,7 +208,7 @@ make build-tests install-tests DESTDIR=...   # the functional tests, as packaged
 | `packaging/suse/` | the OBS package: spec, `_service`, rpmlintrc and how to set it up ([README](packaging/suse/README.md)); packages `mcp-server-tukit`, `-gateway`, `-selinux`, `-tests` |
 | `test/vm/run-tests.sh` | the functional tests on a real transactional system with SELinux enforcing: phase 1, the reboot phase (the tool's own reboot), phase 2 (package `mcp-server-tukit-tests`) |
 | `test/tukitcall/` | their client: one MCP request through the gateway's `mcp-connect` |
-| `test/vm/run-vm.sh`, `prepare.sh` | CI: a MicroOS (and Leap Micro) VM provisioned by Combustion, the packages installed with `transactional-update`, the phases with the tool's reboot between them |
+| `test/vm/run-vm.sh`, `prepare.sh` | CI: a MicroOS VM provisioned by Combustion, the packages installed with `transactional-update`, the phases with the tool's reboot between them |
 | `test/openqa/` | the openQA test module and the plan for openQA ([README](test/openqa/README.md)) |
 
 CI (`.github/workflows/ci.yml`): Go tests and lint; the SELinux module
@@ -227,7 +227,7 @@ versions up to 2025-11-25, cancellation, progress).
 
 ## Not yet
 
-- Running the functional tests: the CI VM job (MicroOS, Leap Micro) and
+- Running the functional tests: the CI VM job (MicroOS) and
   openQA on SL Micro 6.x and SLES 16.1 (immutable); and a profiling run
   (`mcp-gateway-admin profile`) to confirm the domain needs nothing more.
 - tukitd before 6.0 has no `…WithOpts` methods: the server falls back to

@@ -120,7 +120,7 @@ Once the packages are in Factory (mcp-gateway first):
 | Product | Flavor / test suite | Schedule |
 |---|---|---|
 | openSUSE MicroOS (Tumbleweed) | `microos_mcp_tukit` on the `MicroOS-Image` (kvm-and-xen) flavor, x86_64 and aarch64 | after `microos/disk_boot`, `transactional/host_config`: `transactional/mcp_tukit` |
-| openSUSE Leap Micro 6.2 | the same suite on the Default image | as above |
+| openSUSE Leap Micro 6.2 | the same suite on the Default image | as above; not in CI: the Default image boots into the initrd's emergency shell under CI's plain QEMU setup (BIOS, no serial console output to say why), so openQA, which boots it as the product is meant to be, is where Leap Micro is tested |
 
 The YAML schedule (`schedule/microos/mcp_tukit.yaml`):
 

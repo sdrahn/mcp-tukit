@@ -7,7 +7,8 @@
 # (openQA) the packages come from its repositories instead
 # (transactional-update pkg install mcp-server-tukit-tests).
 #
-# <dir> (below /var/tmp, which tukit mounts into the snapshot) holds
+# <dir> (below /var/cache, which tukit bind-mounts into the snapshot;
+# /var/tmp there is a tmpfs of its own) holds
 # rpms/ (the packages: mcp-gateway, mcp-gateway-selinux and
 # mcp-server-tukit's) and opa (used if the distribution has no opa
 # package).

@@ -115,13 +115,15 @@ if [ "$(vm 'getenforce 2>/dev/null || echo Missing')" != Enforcing ]; then
 	done
 fi
 
+# Below /var/cache: tukit bind-mounts it into the snapshot that
+# prepare.sh runs in (/var/tmp there is a tmpfs of its own).
 log "copying the packages"
-vm 'rm -rf /var/tmp/vmtest && mkdir -p /var/tmp/vmtest/rpms'
-scp "${scp_opts[@]}" "$here/prepare.sh" "$opa" root@127.0.0.1:/var/tmp/vmtest/
-scp "${scp_opts[@]}" "$rpms"/*.rpm root@127.0.0.1:/var/tmp/vmtest/rpms/
+vm 'rm -rf /var/cache/mcp-tukit-vmtest && mkdir -p /var/cache/mcp-tukit-vmtest/rpms'
+scp "${scp_opts[@]}" "$here/prepare.sh" "$opa" root@127.0.0.1:/var/cache/mcp-tukit-vmtest/
+scp "${scp_opts[@]}" "$rpms"/*.rpm root@127.0.0.1:/var/cache/mcp-tukit-vmtest/rpms/
 
 log "installing the packages into a new snapshot"
-vm 'transactional-update --non-interactive run bash /var/tmp/vmtest/prepare.sh /var/tmp/vmtest' 2>&1 | tee "$work/prepare.log"
+vm 'transactional-update --non-interactive run bash /var/cache/mcp-tukit-vmtest/prepare.sh /var/cache/mcp-tukit-vmtest' 2>&1 | tee "$work/prepare.log"
 [ "${PIPESTATUS[0]}" = 0 ] || exit 1
 reboot_vm
 

@@ -26,6 +26,10 @@ deps="tukitd jq curl audit policycoreutils selinux-tools polkit util-linux"
 # shellcheck disable=SC2086 # a list of package names
 zypper -n in --no-recommends $deps >/tmp/zypper.log 2>&1 ||
 	{ tail -n 30 /tmp/zypper.log; die "installing the dependencies failed"; }
+# sesearch, for the check that the domain may start one unit only
+# (skipped without it).
+zypper -n in --no-recommends setools-console >/dev/null 2>&1 ||
+	echo "  setools-console: not installed (the sesearch check is skipped)"
 if zypper -n in --no-recommends opa >/dev/null 2>&1; then
 	echo "  opa: distribution package"
 else

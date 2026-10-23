@@ -74,23 +74,40 @@ func (r UnitRun) OK() bool { return r.Result == "success" && r.ActiveState != "f
 // returns how it ended. It polls the unit's Job property: that needs only
 // the SELinux "status" permission on the unit's own type, where
 // subscribing to systemd's job signals would need it on systemd itself.
+// The unit may re-execute systemd (transactional-update apply does), which
+// leaves the bus for a moment and drops the calls it has not answered:
+// those are asked again until ctx ends.
 func (c *Client) RunUnit(ctx context.Context, unit string) (UnitRun, error) {
 	if _, err := c.StartUnit(ctx, unit); err != nil {
 		return UnitRun{}, err
 	}
+	// call retries what fails while systemd is away.
+	call := func(obj dbus.BusObject, method string, out any, args ...any) error {
+		for {
+			err := obj.CallWithContext(ctx, method, dbus.FlagNoAutoStart, args...).Store(out)
+			if err == nil {
+				return nil
+			}
+			if !systemdAway(err) {
+				return systemdErr(unit, err)
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("%s: systemd did not come back: %w (%v)", unit, ctx.Err(), systemdErr(unit, err))
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	}
 	var path dbus.ObjectPath
-	if err := c.conn.Object(systemdName, systemdPath).CallWithContext(ctx, systemdIface+".GetUnit", 0, unit).Store(&path); err != nil {
-		return UnitRun{}, systemdErr(unit, err)
+	if err := call(c.conn.Object(systemdName, systemdPath), systemdIface+".GetUnit", &path, unit); err != nil {
+		return UnitRun{}, err
 	}
 	obj := c.conn.Object(systemdName, path)
 	get := func(prop string) (dbus.Variant, error) {
 		var v dbus.Variant
-		err := obj.CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", 0,
-			prop[:strings.LastIndex(prop, ".")], prop[strings.LastIndex(prop, ".")+1:]).Store(&v)
-		if err != nil {
-			return v, systemdErr(unit, err)
-		}
-		return v, nil
+		i := strings.LastIndex(prop, ".")
+		err := call(obj, "org.freedesktop.DBus.Properties.Get", &v, prop[:i], prop[i+1:])
+		return v, err
 	}
 	for {
 		v, err := get("org.freedesktop.systemd1.Unit.Job")
@@ -123,6 +140,24 @@ func (c *Client) RunUnit(ctx context.Context, unit string) (UnitRun, error) {
 	r.ActiveState, _ = state.Value().(string)
 	r.Result, _ = result.Value().(string)
 	return r, nil
+}
+
+// systemdAway tells whether err comes from systemd being off the bus for
+// a moment, as while it re-executes, rather than from systemd itself.
+func systemdAway(err error) bool {
+	var de dbus.Error
+	if !errors.As(err, &de) {
+		return false
+	}
+	switch de.Name {
+	case "org.freedesktop.DBus.Error.NoReply",
+		"org.freedesktop.DBus.Error.ServiceUnknown",
+		"org.freedesktop.DBus.Error.NameHasNoOwner",
+		"org.freedesktop.DBus.Error.Disconnected",
+		"org.freedesktop.DBus.Error.Timeout":
+		return true
+	}
+	return false
 }
 
 func (l *Lazy) StartUnit(ctx context.Context, unit string) (string, error) {

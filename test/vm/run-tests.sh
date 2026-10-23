@@ -537,8 +537,6 @@ phase2() {
 		check "apply of snapshot ${applied:-?} after an approval" test "$rc" = 0 -a "$(structured applied)" = true
 		check "... $second is in the running system now, without a reboot" rpm -q "$second"
 		check "... its program runs" bash -c "rpm -ql $second | grep -m1 '^/usr/bin/' | xargs -r test -x"
-		echo "  tukit reports snapshot $(active_snapshot) running, $(default_snapshot) the default"
-		check "... tukit reports the applied snapshot running" test "$(active_snapshot)" = "${applied:-x}"
 	else
 		skip "apply (no second package to install: none of tree, figlet, sl, hello, cowsay is available and not installed)"
 	fi

@@ -290,8 +290,12 @@ type jobProp struct {
 // after a moment with the result it is set to.
 type fakeApplyd struct {
 	props *prop.Properties
+	conn  *dbus.Conn
 	mu    sync.Mutex
 	res   string
+	// reexec: the run leaves the bus for a moment, as systemd does when
+	// it re-executes.
+	reexec bool
 }
 
 func (f *fakeApplyd) result() string     { f.mu.Lock(); defer f.mu.Unlock(); return f.res }
@@ -306,7 +310,16 @@ func (f *fakeApplyd) StartUnit(name, mode string) (dbus.ObjectPath, *dbus.Error)
 	f.props.SetMust("org.freedesktop.systemd1.Unit", "Job", jobProp{7, "/org/freedesktop/systemd1/job/7"})
 	f.props.SetMust("org.freedesktop.systemd1.Unit", "ActiveState", "activating")
 	result := f.result()
+	f.mu.Lock()
+	reexec := f.reexec
+	f.mu.Unlock()
 	go func() {
+		if reexec {
+			time.Sleep(50 * time.Millisecond)
+			f.conn.ReleaseName(systemdName)
+			time.Sleep(400 * time.Millisecond)
+			f.conn.RequestName(systemdName, dbus.NameFlagDoNotQueue)
+		}
 		time.Sleep(300 * time.Millisecond)
 		state := "inactive"
 		if result != "success" {
@@ -343,6 +356,7 @@ func TestRunUnitOnBus(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.props = props
+	f.conn = srv
 	if err := srv.Export(f, systemdPath, systemdIface); err != nil {
 		t.Fatal(err)
 	}
@@ -363,6 +377,16 @@ func TestRunUnitOnBus(t *testing.T) {
 	if time.Since(start) < 250*time.Millisecond {
 		t.Fatal("RunUnit returned before the unit's job ended")
 	}
+	// systemd leaves the bus during the run and comes back.
+	f.mu.Lock()
+	f.reexec = true
+	f.mu.Unlock()
+	if r, err := c.RunUnit(ctx, "mcp-tukit-apply.service"); err != nil || !r.OK() {
+		t.Fatalf("run across a re-execution: %+v %v", r, err)
+	}
+	f.mu.Lock()
+	f.reexec = false
+	f.mu.Unlock()
 	f.setResult("exit-code")
 	if r, err := c.RunUnit(ctx, "mcp-tukit-apply.service"); err != nil || r.OK() || r.Result != "exit-code" || r.ActiveState != "failed" {
 		t.Fatalf("failed run: %+v %v", r, err)

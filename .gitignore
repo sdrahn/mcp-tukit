@@ -1,0 +1,7 @@
+/bin/
+/mcp-server-tukit
+/dist/selinux/tmp/
+/dist/selinux/*.pp
+/dist/selinux/mcp_tukit.if
+*.test
+coverage.out

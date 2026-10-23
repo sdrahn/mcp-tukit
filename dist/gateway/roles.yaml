@@ -1,0 +1,33 @@
+# The roles of the server tukit, installed as
+# /usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml.
+# Bind users or groups to them in the role data (chapter 13 of the
+# mcp-gateway user guide).
+
+version: 1
+roles:
+  tukit-reader:
+    description: 'tukit: snapshots of the root file system, and whether a reboot is pending'
+    permissions:
+      - {server: tukit, tool: get_status}
+      - {server: tukit, tool: list_snapshots}
+  tukit-operator:
+    description: 'tukit-reader, and with approval: install, remove and update packages in new snapshots, roll back, delete and clean up snapshots'
+    permissions:
+      - {server: tukit, tool: get_status}
+      - {server: tukit, tool: list_snapshots}
+      - server: tukit
+        tool: rollback
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once]
+      # Offered only with --allow-commands: any command, as root.
+      - server: tukit
+        tool: run_in_snapshot
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once]
+      - server: tukit
+        tool: '*'
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once, session, 1h]

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # dbus-daemon: the tukit client's tests run against a private bus.
+      - run: sudo apt-get update && sudo apt-get install -y dbus
+      - run: make check
+      - run: make build
+
+  # The policy module against Ubuntu's reference policy, with the
+  # gateway's interface (mcp_gateway_backend_template) from its source.
+  selinux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: sdrahn/mcp-gateway
+          path: mcp-gateway
+          sparse-checkout: selinux
+      - run: sudo apt-get update && sudo apt-get install -y selinux-policy-dev checkpolicy
+      - run: make selinux GATEWAY_IF=mcp-gateway/selinux/mcp_gateway.if

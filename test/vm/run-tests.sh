@@ -116,9 +116,12 @@ no_new_privs() { grep -q '^NoNewPrivs:[[:space:]]*1' "/proc/$1/status"; }
 
 # The snapshots as tukit itself lists them, independent of the server:
 # "number default active" per line.
+# default and active are "yes" where they hold (snapper's CSV; other
+# spellings taken as well).
 snapshots() {
 	tukit snapshots --fields number,default,active 2>/dev/null |
-		awk -F'\t' '$1 ~ /^[0-9]+$/ && $1 != 0 { print $1, $2, $3 }'
+		awk -F'\t' 'function b(v) { v = tolower(v); return (v == "yes" || v == "true" || v == "1" || v == "*") ? "yes" : "no" }
+			$1 ~ /^[0-9]+$/ && $1 != 0 { print $1, b($2), b($3) }'
 }
 default_snapshot() { snapshots | awk '$2 == "yes" { print $1 }'; }
 active_snapshot() { snapshots | awk '$3 == "yes" { print $1 }'; }
@@ -167,7 +170,12 @@ succeeded_with() { [ "$rc" = 0 ] && grep -qF -- "$1" <<<"$out"; }
 tool_error_with() { [ "$rc" = 2 ] && grep -qF -- "$1" <<<"$out"; }
 fails() { ! "$@" >/dev/null 2>&1; }
 gone() { ! has_snapshot "$1"; }
-refused() { [ "$rc" = 1 ] && ! grep -qE "dial unix|backend unavailable" <<<"$out"; }
+# A refusal by the gateway: a request error, or (for a tool the policy
+# does not allow) a tool error the gateway writes.
+refused() {
+	! grep -qE "dial unix|backend unavailable" <<<"$out" &&
+		{ [ "$rc" = 1 ] || { [ "$rc" = 2 ] && grep -qF '"mcp-gateway: ' <<<"$out"; }; }
+}
 # structured <field>: a field of the result's structuredContent (false
 # stays false; a missing field is empty).
 structured() { jq -r ".structuredContent.$1 | if . == null then empty else . end" <<<"$out" 2>/dev/null; }
@@ -222,6 +230,8 @@ phase1() {
 	fi
 	check "tukitd is installed" test -x /usr/sbin/tukitd
 	rpm -q tukit tukitd transactional-update 2>/dev/null | sed 's/^/  /'
+	echo "  tukit snapshots (number, default, active):"
+	tukit snapshots --fields number,default,active 2>&1 | sed 's/^/    /' | tail -10
 
 	section "Install"
 	local p
@@ -475,7 +485,11 @@ phase2() {
 		skip "deleting a snapshot (no unused one made by these tests)"
 	fi
 	tool_approved tuki cleanup_snapshots '{}'
-	check "cleanup_snapshots after an approval" test "$rc" = 0
+	if grep -qF "has no Cleanup" <<<"$out"; then
+		skip "cleanup_snapshots (this tukitd has no Cleanup: before 6.2)"
+	else
+		check "cleanup_snapshots after an approval" test "$rc" = 0
+	fi
 	check "... the running snapshot is kept" has_snapshot "$snap"
 
 	section "Commands in a snapshot"

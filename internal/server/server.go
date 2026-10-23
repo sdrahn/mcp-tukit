@@ -380,7 +380,7 @@ type snapshot struct {
 
 func yes(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "yes", "true", "1":
+	case "yes", "true", "1", "*":
 		return true
 	}
 	return false
@@ -905,6 +905,10 @@ func (s *Server) cleanup(ctx context.Context, args json.RawMessage) map[string]a
 	defer cancel()
 	if err := s.tk.Cleanup(ctx); err != nil {
 		s.logf("cleanup: %v", err)
+		var te *tukit.Error
+		if errors.As(err, &te) && te.Name == "org.freedesktop.DBus.Error.UnknownMethod" {
+			return toolError("cleanup: this tukitd has no Cleanup (added in transactional-update 6.2); snapper's own cleanup timer still removes snapshots by its rules")
+		}
 		return toolError("cleanup: %v", err)
 	}
 	s.logf("cleanup done")

@@ -220,7 +220,14 @@ func (e *Error) Error() string {
 	case "org.opensuse.tukit.Error":
 		return "tukit: " + e.Message
 	case "org.freedesktop.DBus.Error.AccessDenied":
-		return "tukitd refused access (D-Bus policy: the account needs to be allowed org.opensuse.tukit): " + e.Message
+		if strings.HasSuffix(e.Message, "not permitted.") {
+			// sd-bus's own check: tukitd registers its methods without
+			// SD_BUS_VTABLE_UNPRIVILEGED, so a caller needs CAP_SYS_ADMIN.
+			return "tukitd refused access: it answers only callers with CAP_SYS_ADMIN (run the server privileged): " + e.Message
+		}
+		return "tukitd refused access (D-Bus policy): " + e.Message
+	case "org.freedesktop.DBus.Error.UnknownMethod":
+		return "this tukitd does not have the method (an older version): " + e.Message
 	case "org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner":
 		return "tukitd is not available (is the tukit D-Bus service, package tukitd, installed?): " + e.Message
 	}

@@ -124,7 +124,7 @@ has_sys_admin() {
 # default and active are "yes" where they hold (snapper's CSV; other
 # spellings taken as well).
 snapshots() {
-	tukit snapshots --fields number,default,active 2>/dev/null |
+	tukit --fields=number,default,active snapshots 2>/dev/null |
 		awk -F'\t' 'function b(v) { v = tolower(v); return (v == "yes" || v == "true" || v == "1" || v == "*") ? "yes" : "no" }
 			$1 ~ /^[0-9]+$/ && $1 != 0 { print $1, b($2), b($3) }'
 }
@@ -236,7 +236,7 @@ phase1() {
 	check "tukitd is installed" test -x /usr/sbin/tukitd
 	rpm -q tukit tukitd transactional-update 2>/dev/null | sed 's/^/  /'
 	echo "  tukit snapshots (number, default, active):"
-	tukit snapshots --fields number,default,active 2>&1 | sed 's/^/    /' | tail -10
+	tukit --fields=number,default,active snapshots 2>&1 | sed 's/^/    /' | tail -10
 
 	section "Install"
 	local p

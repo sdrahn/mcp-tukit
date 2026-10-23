@@ -68,7 +68,7 @@ sub post_fail_hook {
     upload_logs("$results/journal.txt", failok => 1);
     script_run("ausearch -m AVC,USER_AVC,SELINUX_ERR -ts boot > $results/avc.txt 2>&1");
     upload_logs("$results/avc.txt", failok => 1);
-    script_run("tukit snapshots --fields number,default,active,date,description > $results/snapshots.txt 2>&1");
+    script_run("tukit --fields=number,default,active,date,description snapshots > $results/snapshots.txt 2>&1");
     upload_logs("$results/snapshots.txt", failok => 1);
     $self->SUPER::post_fail_hook;
 }

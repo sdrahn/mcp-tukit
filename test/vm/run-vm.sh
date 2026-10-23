@@ -99,7 +99,7 @@ reboot_vm() {
 	done
 	sleep 5
 	wait_ssh
-	log "running snapshot: $(vm 'tukit snapshots --fields number,active 2>/dev/null' | awk -F'\t' '$2 == "yes" { print $1 }' || true)"
+	log "running snapshot: $(vm 'tukit --fields=number,active snapshots 2>/dev/null' | awk -F'\t' '$2 == "yes" { print $1 }' || true)"
 }
 wait_ssh
 vm 'grep PRETTY_NAME /etc/os-release; findmnt -no OPTIONS /'

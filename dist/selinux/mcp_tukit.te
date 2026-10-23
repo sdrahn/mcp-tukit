@@ -1,14 +1,16 @@
-policy_module(mcp_tukit, 0.1.0)
+policy_module(mcp_tukit, 0.2.0)
 
 # mcp-server-tukit (github.com/sdrahn/mcp-tukit) behind mcp-gateway.
-# The server holds no privileges of its own: every tool is a call to
-# tukitd (org.opensuse.tukit) over the system bus, and tukitd creates,
-# mounts and closes the snapshots and runs zypper in them. So the domain
-# needs the gateway's backend baseline and the D-Bus chat with tukitd,
-# nothing else: no capabilities, no mounts, no btrfs ioctls, no access
-# to /.snapshots, no exec of other programs. tukitd checks nothing
-# itself: the D-Bus policy (dist/dbus) lets the account mcp-tukit call
-# it, and the gateway's roles and approvals decide who gets there.
+# Every tool is a call to tukitd (org.opensuse.tukit) over the system
+# bus, and tukitd creates, mounts and closes the snapshots and runs
+# zypper in them. tukitd answers only callers with CAP_SYS_ADMIN, so the
+# instance runs privileged (root, all capabilities); this domain is what
+# keeps it to its job: the gateway's backend baseline and the D-Bus chat
+# with tukitd, and systemd starting one unit, mcp-tukit-reboot.service,
+# of a type of its own. No capability is allowed: holding one is all
+# tukitd checks, using one needs none here. No mounts, no btrfs ioctls,
+# no access to /.snapshots, no exec of other programs. The gateway's
+# roles and approvals decide who gets there.
 
 mcp_gateway_backend_template(tukit)
 
@@ -35,3 +37,24 @@ optional_policy(`
 	allow mcpsrv_tukit_t tukitd_t:dbus send_msg;
 	allow tukitd_t mcpsrv_tukit_t:dbus send_msg;
 ')
+
+# The reboot tool: systemd starts mcp-tukit-reboot.service (which runs
+# transactional-update reboot) for the domain (a caller with
+# CAP_SYS_ADMIN, which systemd does not ask polkit about), and checks the
+# service class on the unit file's type: this unit only. The type is a unit file type in either policy
+# (systemd_unit_file in Fedora-derived ones such as openSUSE's,
+# init_unit_file in the reference policy).
+type mcpsrv_tukit_unit_t;
+ifdef(`systemd_unit_file',`
+	systemd_unit_file(mcpsrv_tukit_unit_t)
+',`
+	init_unit_file(mcpsrv_tukit_unit_t)
+')
+init_dbus_chat(mcpsrv_tukit_t)
+gen_require(`
+	class service { start status };
+')
+allow mcpsrv_tukit_t mcpsrv_tukit_unit_t:service { start status };
+# The reboot method, from transactional-update.conf below /etc and
+# /usr/etc.
+files_read_usr_files(mcpsrv_tukit_t)

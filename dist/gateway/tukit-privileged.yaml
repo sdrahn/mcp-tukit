@@ -1,0 +1,37 @@
+# mcp-server-tukit (https://github.com/sdrahn/mcp-tukit) behind
+# mcp-gateway: transactional updates on immutable SUSE systems (openSUSE
+# MicroOS, Leap Micro, SL Micro, SLES 16.1 in immutable mode) through
+# tukitd. Installed as /usr/share/mcp-gateway/profiles/tukit-privileged.yaml;
+# enable it by linking it into the administrator's directory, where
+# privileged servers are accepted (mcp-gateway user guide, chapter 4):
+#   ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml \
+#         /etc/mcp-gateway/servers.d/tukit.yaml
+#
+# Privileged because tukitd answers only callers with CAP_SYS_ADMIN: it
+# registers its D-Bus methods without SD_BUS_VTABLE_UNPRIVILEGED, so no
+# bus policy can let a sandboxed account in. The instance runs as root
+# with the capabilities of a root service, still in its SELinux domain
+# mcpsrv_tukit_t, which lets it do nothing but talk to tukitd and start
+# the reboot unit; tukitd does the work in the new snapshot. Every call
+# but the reading ones waits for an approval (roles tukit-reader,
+# tukit-operator; every reboot approved by itself).
+version: 1
+name: tukit
+command: ["/usr/bin/mcp-server-tukit"]
+run_as: root
+privileged: true
+selinux_type: mcpsrv_tukit_t
+# No network: zypper runs in tukitd, not in the instance, and the system
+# bus is a unix socket.
+network: false
+# Landlock (a second wall, with all capabilities the more): the system's
+# configuration and programs, read only; the server writes no files.
+landlock: {}
+tool_notes:
+  pkg_install: >-
+    Changes take effect at the next reboot (the tool reboot, which needs
+    an approval of its own). Several changes before a reboot add up
+    (each builds on the default snapshot).
+  update_system: >-
+    Can take many minutes. On SL Micro and Leap Micro use mode update
+    (or patch); dist-upgrade is for MicroOS.

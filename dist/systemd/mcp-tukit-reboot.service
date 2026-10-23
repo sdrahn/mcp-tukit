@@ -1,0 +1,19 @@
+# The reboot of mcp-server-tukit's reboot tool, behind mcp-gateway: the
+# server's domain (mcpsrv_tukit_t) may start this unit and no other
+# (SELinux type mcpsrv_tukit_unit_t), only after the gateway's policy
+# and an approval let the call through. It reboots as
+# transactional-update reboot does, with the administrator's
+# REBOOT_METHOD (transactional-update.conf): systemd (soft-reboot or kexec
+# where tukit.conf allows them), rebootmgr's maintenance window, kured,
+# notify, none.
+[Unit]
+Description=Reboot into the default snapshot (mcp-server-tukit)
+Documentation=https://github.com/sdrahn/mcp-tukit
+RefuseManualStop=yes
+
+[Service]
+Type=oneshot
+# Time for the tool's answer to reach the agent before the system goes
+# down.
+ExecStartPre=/usr/bin/sleep 10
+ExecStart=/usr/sbin/transactional-update --non-interactive reboot

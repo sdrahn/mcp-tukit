@@ -4,10 +4,11 @@
 //
 // The server does none of the privileged work itself: tukitd creates
 // the snapshot, mounts it, runs the command in it (chrooted) and sets it
-// as the next default. That keeps the server's own process unprivileged
-// (no capabilities, no mounts, no btrfs ioctls), so it can run in the
-// gateway's sandbox and a small SELinux domain whose only way to the
-// system is the D-Bus chat with tukitd.
+// as the next default. The server's process needs no mounts, no btrfs
+// ioctls and no files, so its SELinux domain allows it little more than
+// the D-Bus chat with tukitd. tukitd answers only callers with
+// CAP_SYS_ADMIN, though, so the process holds it (a privileged server
+// behind mcp-gateway) without using it.
 package tukit
 
 import (
@@ -70,6 +71,9 @@ type Backend interface {
 	// RollbackTo makes snapshot the default at next boot and returns the
 	// snapshot that will boot (a copy on some systems).
 	RollbackTo(ctx context.Context, snapshot string) (string, error)
+	// StartUnit asks systemd to start a unit (the reboot unit) and returns
+	// the job's object path. tukitd has no reboot of its own.
+	StartUnit(ctx context.Context, unit string) (string, error)
 }
 
 // Quote returns argv as a command line for tukitd, which splits it with
@@ -217,7 +221,14 @@ func (e *Error) Error() string {
 	case "org.opensuse.tukit.Error":
 		return "tukit: " + e.Message
 	case "org.freedesktop.DBus.Error.AccessDenied":
-		return "tukitd refused access (D-Bus policy: the account needs to be allowed org.opensuse.tukit): " + e.Message
+		if strings.HasSuffix(e.Message, "not permitted.") {
+			// sd-bus's own check: tukitd registers its methods without
+			// SD_BUS_VTABLE_UNPRIVILEGED, so a caller needs CAP_SYS_ADMIN.
+			return "tukitd refused access: it answers only callers with CAP_SYS_ADMIN (run the server privileged): " + e.Message
+		}
+		return "tukitd refused access (D-Bus policy): " + e.Message
+	case "org.freedesktop.DBus.Error.UnknownMethod":
+		return "this tukitd does not have the method (an older version): " + e.Message
 	case "org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner":
 		return "tukitd is not available (is the tukit D-Bus service, package tukitd, installed?): " + e.Message
 	}

@@ -1,0 +1,3 @@
+# The functional tests: shell script and test client below
+# /usr/libexec, for test systems only (openQA).
+addFilter("mcp-server-tukit-tests.* no-manual-page-for-binary")

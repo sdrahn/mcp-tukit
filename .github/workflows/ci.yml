@@ -3,9 +3,17 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      gateway_ref:
+        description: mcp-gateway branch, tag or commit to build against
+        default: main
 
 permissions:
   contents: read
+
+env:
+  GATEWAY_REF: ${{ inputs.gateway_ref || 'main' }}
 
 jobs:
   go:
@@ -16,9 +24,10 @@ jobs:
         with:
           go-version-file: go.mod
       # dbus-daemon: the tukit client's tests run against a private bus.
-      - run: sudo apt-get update && sudo apt-get install -y dbus
+      - run: sudo apt-get update && sudo apt-get install -y dbus shellcheck
       - run: make check
-      - run: make build
+      - run: make build build-tests
+      - run: shellcheck -S warning test/vm/*.sh
 
   # The policy module against Ubuntu's reference policy, with the
   # gateway's interface (mcp_gateway_backend_template) from its source.
@@ -29,7 +38,199 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: sdrahn/mcp-gateway
+          ref: ${{ env.GATEWAY_REF }}
           path: mcp-gateway
           sparse-checkout: selinux
       - run: sudo apt-get update && sudo apt-get install -y selinux-policy-dev checkpolicy
       - run: make selinux GATEWAY_IF=mcp-gateway/selinux/mcp_gateway.if
+
+  # mcp-gateway's packages, built from its source as its own CI and OBS
+  # build them: this package build-requires mcp-gateway-selinux, and the
+  # installation and VM tests need the gateway.
+  gateway-rpms:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+          - distro: leap16
+            image: registry.opensuse.org/opensuse/leap:16.0
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install tools and rpm macro packages
+        run: >
+          zypper -n --gpg-auto-import-keys in --no-recommends
+          git tar gzip rpm-build sysuser-tools systemd-rpm-macros selinux-policy-devel
+      - uses: actions/checkout@v4
+        with:
+          repository: sdrahn/mcp-gateway
+          ref: ${{ env.GATEWAY_REF }}
+          path: mcp-gateway
+      - name: Install build dependencies
+        working-directory: mcp-gateway
+        run: |
+          rpmspec -q --buildrequires packaging/suse/mcp-gateway.spec >/tmp/buildrequires
+          xargs -d '\n' zypper -n --gpg-auto-import-keys in --no-recommends </tmp/buildrequires
+      - name: Build
+        working-directory: mcp-gateway
+        run: |
+          git config --global --add safe.directory "$PWD"
+          version=$(rpmspec -q --srpm --qf '%{version}' packaging/suse/mcp-gateway.spec)
+          mkdir -p ~/rpmbuild/SOURCES
+          git archive --prefix="mcp-gateway-$version/" -o ~/rpmbuild/SOURCES/mcp-gateway-$version.tar.gz HEAD
+          go mod vendor && tar czf ~/rpmbuild/SOURCES/vendor.tar.gz vendor && rm -rf vendor
+          cp packaging/suse/mcp-gateway-rpmlintrc ~/rpmbuild/SOURCES/
+          rpmbuild -bb --nocheck --define "_topdir $HOME/rpmbuild" packaging/suse/mcp-gateway.spec
+          mkdir ../gateway-rpms
+          cp ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm ../gateway-rpms/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway-rpms-${{ matrix.distro }}
+          path: gateway-rpms/
+          retention-days: 7
+
+  # The OBS package (packaging/suse), built the way OBS builds it: SUSE rpm
+  # macros, offline Go modules, the SELinux module against openSUSE's
+  # policy and the gateway's installed interface, rpmlint with the
+  # package's rpmlintrc; then installed with the gateway.
+  opensuse:
+    needs: gateway-rpms
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+          - distro: leap16
+            image: registry.opensuse.org/opensuse/leap:16.0
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install tools and rpm macro packages
+        run: >
+          zypper -n --gpg-auto-import-keys in --no-recommends
+          git tar gzip rpm-build rpmlint sysuser-tools systemd-rpm-macros selinux-policy-devel
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gateway-rpms-${{ matrix.distro }}
+          path: gateway-rpms
+      - name: Install build dependencies (from the spec, as OBS does)
+        run: |
+          # mcp-gateway-selinux comes from the gateway's build, not a repository.
+          zypper -n --gpg-auto-import-keys in --no-recommends --allow-unsigned-rpm gateway-rpms/mcp-gateway-selinux-*.rpm
+          rpmspec -q --buildrequires packaging/suse/mcp-server-tukit.spec | grep -v '^mcp-gateway-selinux' | tee /tmp/buildrequires
+          xargs -d '\n' zypper -n --gpg-auto-import-keys in --no-recommends </tmp/buildrequires
+          # The tukit client's tests run against a private bus in %check.
+          zypper -n in --no-recommends dbus-1-daemon || zypper -n in --no-recommends dbus-1
+      - name: Prepare sources (tarball and vendor.tar.gz, as the OBS services do)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version=$(rpmspec -q --srpm --qf '%{version}' packaging/suse/mcp-server-tukit.spec)
+          mkdir -p ~/rpmbuild/SOURCES
+          git archive --prefix="mcp-server-tukit-$version/" -o ~/rpmbuild/SOURCES/mcp-server-tukit-$version.tar.gz HEAD
+          go mod vendor && tar czf ~/rpmbuild/SOURCES/vendor.tar.gz vendor && rm -rf vendor
+          cp packaging/suse/mcp-server-tukit-rpmlintrc ~/rpmbuild/SOURCES/
+      - name: rpmbuild
+        run: rpmbuild -ba --define "_topdir $HOME/rpmbuild" packaging/suse/mcp-server-tukit.spec
+      - name: rpmlint
+        # On OBS the .changes file provides the changelog; here it is empty.
+        run: |
+          { cat packaging/suse/mcp-server-tukit-rpmlintrc; echo 'addFilter("no-changelogname-tag")'; } >/tmp/rpmlintrc
+          rpmlint -r /tmp/rpmlintrc ~/rpmbuild/RPMS/*/*.rpm
+      - name: Install and smoke-test
+        run: |
+          # opa and tukitd are runtime dependencies only.
+          rpm -ivh --nodeps gateway-rpms/mcp-gateway-[0-9]*.rpm
+          mcp-gateway --check 2>&1 | grep -o 'backends=[0-9]*' >/tmp/before
+          ls ~/rpmbuild/RPMS/*/mcp-server-tukit*.rpm | grep -v -e debuginfo -e debugsource >/tmp/ours
+          xargs rpm -ivh --nodeps </tmp/ours
+          mcp-server-tukit -version
+          test -f /usr/lib/systemd/system/mcp-tukit-reboot.service
+          systemd-analyze verify /usr/lib/systemd/system/mcp-tukit-reboot.service 2>&1 | grep -v -e 'transactional-update' -e '^$' | tee /tmp/verify.log
+          ! grep -qiE 'unknown (key|section|lvalue)|invalid|failed to parse' /tmp/verify.log
+          test -x /usr/libexec/mcp-server-tukit/tests/tukitcall
+          # The run-tests.sh refuses to run without --disposable.
+          ! /usr/libexec/mcp-server-tukit/tests/run-tests.sh --phase 1
+          semodule -l | grep -x mcp_tukit
+          # The package alone adds no server: its definition is
+          # privileged, accepted only when the administrator links it into
+          # /etc; then there is one server more.
+          mcp-gateway --check 2>&1 | grep -o 'backends=[0-9]*' | diff /tmp/before -
+          mkdir -p /etc/mcp-gateway/servers.d
+          ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+          mcp-gateway --check 2>&1 | tee /tmp/check.log
+          test "$(grep -o 'backends=[0-9]*' /tmp/check.log | cut -d= -f2)" = "$(($(cut -d= -f2 /tmp/before) + 1))"
+          # As a vendor definition it would stop the gateway.
+          rm /etc/mcp-gateway/servers.d/tukit.yaml
+          cp /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /usr/share/mcp-gateway/servers.d/tukit.yaml
+          ! mcp-gateway --check >/tmp/vendor.log 2>&1
+          grep -q 'privileged: only allowed in' /tmp/vendor.log
+          rm /usr/share/mcp-gateway/servers.d/tukit.yaml
+          # Bindings may name the roles the package ships.
+          echo '{"roles": {}, "bindings": {"users": {"root": ["tukit-operator", "tukit-reader"]}}}' |
+            mcp-gateway --check-policy-data --policy-data -
+      - name: Collect the packages for the VM test
+        run: |
+          mkdir rpms
+          cp gateway-rpms/*.rpm rpms/
+          xargs cp -t rpms/ </tmp/ours
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms-${{ matrix.distro }}
+          path: rpms/
+          retention-days: 7
+
+  # The packages on a real transactional system (a KVM guest) with SELinux
+  # enforcing: installed with transactional-update, then the tests of
+  # mcp-server-tukit-tests in two phases with a reboot between them, as
+  # openQA runs them (test/vm, test/openqa).
+  vm:
+    needs: opensuse
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            name: openSUSE MicroOS
+            image_url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-MicroOS.x86_64-kvm-and-xen.qcow2
+          # Leap Micro and SL Micro: openQA (test/openqa). The Leap Micro 6.2
+          # Default image boots into the initrd's emergency shell under this
+          # QEMU setup, with nothing on the serial console to say why.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+          static: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpms-${{ matrix.distro }}
+          path: rpms
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils xorriso
+      - name: Run the VM tests (${{ matrix.name }})
+        env:
+          WORK: ${{ runner.temp }}/vm
+          IMAGE_URL: ${{ matrix.image_url }}
+        run: test/vm/run-vm.sh rpms "$(command -v opa)"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-logs-${{ matrix.distro }}
+          path: |
+            ${{ runner.temp }}/vm/console.log
+            ${{ runner.temp }}/vm/prepare.log
+            ${{ runner.temp }}/vm/test-*.log
+            ${{ runner.temp }}/vm/results-*.tap
+            ${{ runner.temp }}/vm/results-*.xml
+          if-no-files-found: ignore

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ type fake struct {
 	openErr  error
 	block    chan struct{} // Call waits for it, if set
 	rollback string
+	unitErr  error
 }
 
 func (f *fake) log(s string) {
@@ -78,6 +80,13 @@ func (f *fake) Delete(ctx context.Context, snapshot string) error {
 	return nil
 }
 func (f *fake) Cleanup(ctx context.Context) error { f.log("cleanup"); return nil }
+func (f *fake) StartUnit(ctx context.Context, unit string) (string, error) {
+	f.log("start " + unit)
+	if f.unitErr != nil {
+		return "", f.unitErr
+	}
+	return "/org/freedesktop/systemd1/job/7", nil
+}
 func (f *fake) RollbackTo(ctx context.Context, snapshot string) (string, error) {
 	f.log("rollback " + snapshot)
 	if f.rollback != "" {
@@ -353,5 +362,64 @@ func TestClip(t *testing.T) {
 	got, cut := clip(out, 80)
 	if !cut || !strings.HasPrefix(got, "aaaaaaaaaa\n[…]\n") || !strings.HasSuffix(got, strings.Repeat("z", 70)) {
 		t.Fatalf("clip: %q", got)
+	}
+}
+
+func TestReboot(t *testing.T) {
+	const unit = "mcp-tukit-reboot.service"
+	dir := t.TempDir()
+	conf := dir + "/transactional-update.conf"
+	if err := os.WriteFile(conf, []byte("# REBOOT_METHOD=kured\nREBOOT_METHOD=\"rebootmgr\" # window\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fake{list: snaps}
+	s := New(Config{RebootUnit: unit, RebootConfig: []string{dir + "/missing.conf", conf}}, f)
+	for _, tc := range []struct{ args, refusal string }{
+		{`{"snapshot":"9"}`, "not the default"},
+		{`{"snapshot":"x"}`, "must be a snapshot number"},
+		{`{"now":true}`, "unknown field"},
+	} {
+		if r := call(t, s, context.Background(), "reboot", tc.args); !isError(r) || !strings.Contains(text(r), tc.refusal) {
+			t.Errorf("%s: %v", tc.args, r)
+		}
+	}
+	r := call(t, s, context.Background(), "reboot", `{"snapshot":"10"}`)
+	st, _ := r["structuredContent"].(map[string]any)
+	if isError(r) || st["default"] != "10" || st["method"] != "rebootmgr" || !strings.Contains(text(r), "maintenance window") {
+		t.Fatalf("reboot: %v", r)
+	}
+	equal(t, f.logged(), []string{"start " + unit})
+
+	// Nothing pending: refused, unless forced.
+	f = &fake{list: []map[string]string{{"number": "9", "active": "yes", "default": "yes"}}}
+	s = New(Config{RebootUnit: unit}, f)
+	if r := call(t, s, context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "no reboot pending") {
+		t.Fatalf("not pending: %v", r)
+	}
+	if r := call(t, s, context.Background(), "reboot", `{"force":true}`); isError(r) || r["structuredContent"].(map[string]any)["method"] != "auto" {
+		t.Fatalf("forced: %v", r)
+	}
+
+	// systemd's refusal is the tool's error.
+	f = &fake{list: snaps, unitErr: &tukit.SystemdError{Unit: unit, Name: "org.freedesktop.DBus.Error.AccessDenied", Message: "denied"}}
+	if r := call(t, New(Config{RebootUnit: unit}, f), context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "must run privileged") {
+		t.Fatalf("refused by systemd: %v", r)
+	}
+
+	// Not while a change runs.
+	f = &fake{list: snaps, block: make(chan struct{})}
+	s = New(Config{RebootUnit: unit}, f)
+	done := make(chan struct{})
+	go func() { defer close(done); call(t, s, context.Background(), "pkg_install", `{"packages":["vim"]}`) }()
+	waitFor(t, func() bool { return len(f.logged()) == 2 })
+	if r := call(t, s, context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "change of this server is running") {
+		t.Fatalf("during a change: %v", r)
+	}
+	close(f.block)
+	<-done
+
+	// Without a unit, no tool.
+	if New(Config{}, &fake{}).tool("reboot") != nil {
+		t.Fatal("reboot offered without a unit")
 	}
 }

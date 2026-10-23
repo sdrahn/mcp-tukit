@@ -78,16 +78,29 @@ qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
 	-pidfile "$work/qemu.pid" -daemonize
 trap 'kill "$(cat "$work/qemu.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
 
+# console_failure: what the console says went wrong, the first time
+# (an emergency shell repeats the same lines at every boot).
+console_failure() {
+	grep -aiE 'fail|error|ignition|combustion|timed out|emergency' "$work/console.log" |
+		grep -avE 'I/O error, dev fd0' | head -40
+}
 wait_ssh() {
 	for _ in $(seq 120); do
 		if vm true 2>/dev/null; then
 			log "ssh is up"
 			return
 		fi
+		# An emergency shell in the initrd never comes up: stop at once.
+		if grep -aq 'Entering emergency mode' "$work/console.log" 2>/dev/null; then
+			echo "the VM boots into an emergency shell; the console's errors:" >&2
+			console_failure >&2
+			exit 1
+		fi
 		sleep 5
 	done
-	echo "the VM did not come up; console:" >&2
-	tail -50 "$work/console.log" >&2
+	echo "the VM did not come up; the console's errors, then its end:" >&2
+	console_failure >&2
+	tail -30 "$work/console.log" >&2
 	exit 1
 }
 reboot_vm() {

@@ -24,6 +24,10 @@ Source99:       %{name}-rpmlintrc
 BuildRequires:  bzip2
 BuildRequires:  golang(API) >= 1.24
 BuildRequires:  make
+# Owns /usr/share/polkit-1/rules.d, where the rule goes (the file list
+# check needs an owner in the build root; filesystem owns it with other
+# attributes on Tumbleweed, so this package does not).
+BuildRequires:  polkit
 # mcp_gateway_backend_template, from the gateway's interface file.
 BuildRequires:  mcp-gateway-selinux
 BuildRequires:  selinux-policy-devel
@@ -174,8 +178,6 @@ fi
 %{_datadir}/dbus-1/system.d/mcp-tukit.conf
 %{_sysusersdir}/mcp-tukit.conf
 %{_unitdir}/mcp-tukit-reboot.service
-%dir %{_datadir}/polkit-1
-%dir %{_datadir}/polkit-1/rules.d
 %{_datadir}/polkit-1/rules.d/60-mcp-tukit.rules
 
 %files selinux

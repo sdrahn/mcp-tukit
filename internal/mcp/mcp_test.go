@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // syncBuffer is a bytes.Buffer safe for the server's writers.
@@ -50,21 +51,35 @@ func TestServe(t *testing.T) {
 	write(`{"jsonrpc":"2.0","id":4,"method":"nosuch"}`)
 	write(`{"jsonrpc":"2.0","id":5,"method":"x","params":"` + strings.Repeat("a", 300) + `"}`)
 	write(`not json`)
-	_ = inW.Close()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	got := out.String()
-	for _, want := range []string{
+	want := []string{
 		`{"jsonrpc":"2.0","method":"notifications/progress","params":{"message":"half way","progress":1,"progressToken":7}}`,
 		`{"jsonrpc":"2.0","id":2,"result":"done"}`,
 		`{"jsonrpc":"2.0","id":3,"result":"done"}`,
 		`{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"method not found"}}`,
 		`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"message too large"}}`,
 		`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}`,
-	} {
-		if !strings.Contains(got, want+"\n") {
-			t.Errorf("missing %s in\n%s", want, got)
+	}
+	// The end of input cancels what is still running: wait for the
+	// answers first.
+	all := func() bool {
+		for _, w := range want {
+			if !strings.Contains(out.String(), w+"\n") {
+				return false
+			}
+		}
+		return true
+	}
+	for i := 0; i < 500 && !all(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = inW.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, w := range want {
+		if !strings.Contains(got, w+"\n") {
+			t.Errorf("missing %s in\n%s", w, got)
 		}
 	}
 	if strings.Contains(got, "too late") || strings.Count(got, "notifications/progress") != 1 {

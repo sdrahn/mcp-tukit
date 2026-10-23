@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -37,6 +39,12 @@ type Config struct {
 	AllowCommands bool
 	// MaxOutput bounds the command output in a result.
 	MaxOutput int
+	// RebootUnit is the systemd unit the reboot tool starts (it runs
+	// transactional-update reboot); empty: no reboot tool.
+	RebootUnit string
+	// RebootConfig are transactional-update's configuration files, in the
+	// order it reads them, for the reboot method the result names.
+	RebootConfig []string
 	// About, if set, opens the instructions.
 	About string
 	// Log receives a line for every change (the journal, on stderr).
@@ -122,9 +130,15 @@ func (s *Server) instructions() string {
 		"New snapshots build on the default snapshot (\"" + s.cfg.DefaultBase + "\" unless a call names a base), " +
 		"so changes made one after the other before a reboot add up. " +
 		"Use get_status to see whether a reboot is pending, list_snapshots for the snapshots, " +
-		"and rollback to boot an earlier snapshot next time. This server does not reboot the system; " +
-		"say that a reboot is needed when a change was applied. " +
+		"and rollback to boot an earlier snapshot next time. " +
 		"/etc, /var and /home are not part of the read-only root and are changed directly, not with this server."
+	if s.cfg.RebootUnit != "" {
+		out += " reboot activates the default snapshot, the way transactional-update reboot does (the configured reboot method: " +
+			"at once, or in rebootmgr's maintenance window); it takes the system and this connection down: " +
+			"call it only when asked to reboot, or when a change should take effect now and that was agreed, and name the snapshot you expect to boot."
+	} else {
+		out += " This server does not reboot the system; say that a reboot is needed when a change was applied."
+	}
 	if s.cfg.AllowCommands {
 		out += " run_in_snapshot runs any command as root in a new snapshot; prefer the package tools where they do the job."
 	}
@@ -204,6 +218,18 @@ func (s *Server) tools() []*tool {
 		{name: "cleanup_snapshots", title: "Clean up snapshots", idempotent: true,
 			description: "Removes snapshots that are no longer needed, by the configured cleanup rules (tukit cleanup, transactional-update cleanup).",
 			input:       object(nil, nil), output: simpleSchema, call: s.cleanup},
+	}
+	if s.cfg.RebootUnit != "" {
+		ts = append(ts, &tool{name: "reboot", title: "Reboot into the default snapshot",
+			description: "Reboots the system so that the default snapshot becomes the running one, as transactional-update reboot does, " +
+				"with the reboot method the administrator configured (REBOOT_METHOD: systemd, soft-reboot or kexec where allowed, rebootmgr's maintenance window, kured). " +
+				"Refused when no reboot is pending (the default snapshot is the running one) unless force is set, when snapshot is given and is not the default, " +
+				"and while a change of this server runs. The reboot starts about 10 s after the answer; the connection ends with it.",
+			input: object(map[string]any{
+				"snapshot": map[string]any{"type": "string", "pattern": "^[0-9]{1,10}$", "description": "the snapshot you expect to boot: refused if it is not the default (recommended)"},
+				"force":    map[string]any{"type": "boolean", "description": "reboot even though no snapshot is pending (the default is the running one)"},
+			}, nil),
+			output: rebootSchema, call: s.reboot})
 	}
 	if s.cfg.AllowCommands {
 		ts = append(ts, &tool{name: "run_in_snapshot", title: "Run a command in a new snapshot",
@@ -304,6 +330,14 @@ var rollbackSchema = map[string]any{"type": "object", "properties": map[string]a
 	"default":         map[string]any{"type": "string", "description": "the snapshot booted next (a copy of snapshot on some systems)"},
 	"reboot_required": map[string]any{"type": "boolean"},
 }, "required": []string{"default"}}
+
+var rebootSchema = map[string]any{"type": "object", "properties": map[string]any{
+	"started": map[string]any{"type": "boolean"},
+	"active":  map[string]any{"type": "string", "description": "the snapshot running now"},
+	"default": map[string]any{"type": "string", "description": "the snapshot the system boots"},
+	"method":  map[string]any{"type": "string", "description": "transactional-update's REBOOT_METHOD"},
+	"unit":    map[string]any{"type": "string"},
+}, "required": []string{"started"}}
 
 var simpleSchema = map[string]any{"type": "object", "properties": map[string]any{
 	"done": map[string]any{"type": "boolean"},
@@ -875,4 +909,99 @@ func (s *Server) cleanup(ctx context.Context, args json.RawMessage) map[string]a
 	}
 	s.logf("cleanup done")
 	return result("Snapshots cleaned up.", map[string]any{"done": true}, false)
+}
+
+func (s *Server) reboot(ctx context.Context, args json.RawMessage) map[string]any {
+	var a struct {
+		Snapshot string `json:"snapshot"`
+		Force    bool   `json:"force"`
+	}
+	if err := decode(args, &a); err != nil {
+		return toolError("%v", err)
+	}
+	if a.Snapshot != "" && !tukit.ValidSnapshot(a.Snapshot, false) {
+		return toolError("snapshot %q: must be a snapshot number", a.Snapshot)
+	}
+	// Not in the middle of a change: its snapshot would be cut off.
+	if !s.change.TryLock() {
+		return toolError("a change of this server is running; reboot once it has ended")
+	}
+	defer s.change.Unlock()
+	ctx, cancel := opContext(context.WithoutCancel(ctx))
+	defer cancel()
+	snaps, err := s.snapshots(ctx)
+	if err != nil {
+		return toolError("listing snapshots: %v", err)
+	}
+	var active, def string
+	for _, sn := range snaps {
+		if sn.Active {
+			active = sn.Number
+		}
+		if sn.Default {
+			def = sn.Number
+		}
+	}
+	if def == "" {
+		return toolError("tukit names no default snapshot; not rebooting")
+	}
+	if a.Snapshot != "" && a.Snapshot != def {
+		return toolError("snapshot %s is not the default: the system would boot snapshot %s; not rebooting", a.Snapshot, def)
+	}
+	if def == active && !a.Force {
+		return toolError("no reboot pending: the default snapshot %s is the running one (force reboots anyway)", def)
+	}
+	method := rebootMethod(s.cfg.RebootConfig)
+	job, err := s.tk.StartUnit(ctx, s.cfg.RebootUnit)
+	if err != nil {
+		s.logf("reboot into %s: %v", def, err)
+		return toolError("reboot: %v", err)
+	}
+	s.logf("reboot into %s (running %s, REBOOT_METHOD=%s): %s started, job %s", def, active, method, s.cfg.RebootUnit, job)
+	var how string
+	switch method {
+	case "rebootmgr":
+		how = "rebootmgr reboots in its maintenance window"
+	case "kured":
+		how = "kured is told to reboot (it drains the node first)"
+	case "notify":
+		how = "the logged-in users are notified to reboot"
+	case "none":
+		how = "reboots are turned off (REBOOT_METHOD=none): nothing happens"
+	default:
+		how = "the system reboots in about 10 s (rebootmgr's maintenance window instead, if rebootmgr runs)"
+	}
+	text := fmt.Sprintf("Reboot into snapshot %s started with transactional-update reboot (REBOOT_METHOD=%s): %s. This connection ends with it.", def, method, how)
+	return result(text, map[string]any{"started": true, "active": active, "default": def, "method": method, "unit": s.cfg.RebootUnit}, false)
+}
+
+// rebootMethod is transactional-update's REBOOT_METHOD from its
+// configuration files (shell assignments; the last one wins), "auto" if
+// none sets it.
+func rebootMethod(files []string) string {
+	method := "auto"
+	for _, f := range files {
+		paths := []string{f}
+		if strings.HasSuffix(f, ".d") {
+			paths, _ = filepath.Glob(filepath.Join(f, "*"))
+		}
+		for _, p := range paths {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				v, ok := strings.CutPrefix(strings.TrimSpace(line), "REBOOT_METHOD=")
+				if !ok {
+					continue
+				}
+				v, _, _ = strings.Cut(v, "#")
+				v = strings.Trim(strings.TrimSpace(v), `"'`)
+				if v != "" {
+					method = v
+				}
+			}
+		}
+	}
+	return method
 }

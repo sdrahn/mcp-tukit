@@ -28,6 +28,7 @@ BuildRequires:  make
 BuildRequires:  mcp-gateway-selinux
 BuildRequires:  selinux-policy-devel
 BuildRequires:  sysuser-tools
+BuildRequires:  systemd-rpm-macros
 # The server only talks to tukitd; tukitd does the work.
 Requires:       tukitd
 
@@ -46,13 +47,20 @@ BuildArch:      noarch
 Requires:       %{name} = %{version}
 Requires:       mcp-gateway
 Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
+# The reboot unit runs transactional-update reboot; polkit lets the
+# account start that unit only.
+Requires:       polkit
+Requires:       transactional-update
 %sysusers_requires
+%{?systemd_ordering}
 
 %description gateway
 Sets up mcp-server-tukit behind mcp-gateway: the server definition
 (server tukit, in the gateway's sandbox as the account mcp-tukit, SELinux
 domain mcpsrv_tukit_t), the roles tukit-reader and tukit-operator (every
-change approved), and the D-Bus policy that lets mcp-tukit call tukitd.
+change approved), the D-Bus policy that lets mcp-tukit call tukitd, and
+for the reboot tool the unit mcp-tukit-reboot.service (transactional-update
+reboot) with a polkit rule that lets mcp-tukit start that unit only.
 
 %package selinux
 Summary:        SELinux policy module for mcp-server-tukit
@@ -111,7 +119,7 @@ make selinux
 %install
 export GOFLAGS="-mod=vendor"
 %make_install install install-tests install-selinux VERSION=%{version} PREFIX=%{_prefix} \
-    LIBEXECDIR=%{_libexecdir} SYSUSERSDIR=%{_sysusersdir} \
+    LIBEXECDIR=%{_libexecdir} SYSUSERSDIR=%{_sysusersdir} UNITDIR=%{_unitdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
 
 %check
@@ -120,6 +128,17 @@ export GOFLAGS="-mod=vendor"
 go test ./...
 
 %pre gateway -f %{name}-gateway.pre
+%service_add_pre mcp-tukit-reboot.service
+
+%post gateway
+%service_add_post mcp-tukit-reboot.service
+
+%preun gateway
+%service_del_preun mcp-tukit-reboot.service
+
+%postun gateway
+# Not restarted on update: it would reboot the system.
+%service_del_postun_without_restart mcp-tukit-reboot.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -154,6 +173,10 @@ fi
 %dir %{_datadir}/dbus-1/system.d
 %{_datadir}/dbus-1/system.d/mcp-tukit.conf
 %{_sysusersdir}/mcp-tukit.conf
+%{_unitdir}/mcp-tukit-reboot.service
+%dir %{_datadir}/polkit-1
+%dir %{_datadir}/polkit-1/rules.d
+%{_datadir}/polkit-1/rules.d/60-mcp-tukit.rules
 
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}

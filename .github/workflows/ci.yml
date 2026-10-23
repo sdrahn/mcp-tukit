@@ -150,6 +150,10 @@ jobs:
           mcp-server-tukit -version
           getent passwd mcp-tukit
           test -f /usr/share/dbus-1/system.d/mcp-tukit.conf
+          test -f /usr/lib/systemd/system/mcp-tukit-reboot.service
+          test -f /usr/share/polkit-1/rules.d/60-mcp-tukit.rules
+          systemd-analyze verify /usr/lib/systemd/system/mcp-tukit-reboot.service 2>&1 | grep -v -e 'transactional-update' -e '^$' | tee /tmp/verify.log
+          ! grep -qiE 'unknown (key|section|lvalue)|invalid|failed to parse' /tmp/verify.log
           test -x /usr/libexec/mcp-server-tukit/tests/tukitcall
           # The run-tests.sh refuses to run without --disposable.
           ! /usr/libexec/mcp-server-tukit/tests/run-tests.sh --phase 1

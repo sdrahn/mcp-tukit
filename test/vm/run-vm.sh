@@ -2,8 +2,9 @@
 # Boots a transactional openSUSE image (MicroOS, Leap Micro) with
 # QEMU/KVM, installs the packages built from this tree into a new
 # snapshot with transactional-update (prepare.sh), reboots, and runs the
-# functional tests of mcp-server-tukit-tests in two phases with a reboot
-# between them, as openQA does on a product system
+# functional tests of mcp-server-tukit-tests: phase 1, the reboot phase
+# (the server's reboot tool takes the system down), phase 2 after the
+# system is back, as openQA does on a product system
 # (test/openqa/mcp_tukit.pm).
 #
 # Usage: test/vm/run-vm.sh <rpm dir> <opa binary>
@@ -124,8 +125,18 @@ vm 'transactional-update --non-interactive run bash /var/tmp/vmtest/prepare.sh /
 [ "${PIPESTATUS[0]}" = 0 ] || exit 1
 reboot_vm
 
+# went_down <seconds>: the VM stopped answering within that time.
+went_down() {
+	local deadline=$((SECONDS + $1))
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		vm true 2>/dev/null || return 0
+		sleep 2
+	done
+	return 1
+}
+
 status=0
-for phase in 1 2; do
+for phase in 1 reboot 2; do
 	log "running the tests, phase $phase"
 	set +e
 	vm "/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase $phase --results /var/tmp/vmtest/results-$phase" \
@@ -136,7 +147,20 @@ for phase in 1 2; do
 	set -e
 	log "phase $phase exited with $s"
 	[ "$s" = 0 ] || status=1
-	# Phase 2 needs the snapshot phase 1 made the default.
-	[ "$phase" = 1 ] && reboot_vm
+	# The reboot phase ends with the reboot tool's reboot (about 10 s
+	# later, with REBOOT_METHOD=auto and no rebootmgr): wait for it; if it
+	# does not come, that is a failure, and phase 2 runs after a reboot of
+	# our own.
+	if [ "$phase" = reboot ]; then
+		if went_down 120; then
+			log "the reboot tool took the system down"
+			sleep 5
+			wait_ssh
+		else
+			log "FAIL: the system did not go down after the reboot tool's call"
+			status=1
+			reboot_vm
+		fi
+	fi
 done
 exit "$status"

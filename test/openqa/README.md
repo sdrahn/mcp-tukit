@@ -33,11 +33,12 @@ for testing:
 transactional-update pkg install mcp-server-tukit-tests
 reboot
 /usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1 --results /var/tmp/mcp-tukit-tests/phase-1
-reboot
+/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase reboot --results /var/tmp/mcp-tukit-tests/phase-reboot
+# the system reboots by itself about 10 s later
 /usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 2 --results /var/tmp/mcp-tukit-tests/phase-2
 ```
 
-- **Two phases, a reboot between them.** Phase 1 sets up users
+- **Three phases; the reboot is the server's own.** Phase 1 sets up users
   (`tuki`, operator; `rita`, reader; `ned`, no role), starts the
   gateway, checks the instance (domain `mcpsrv_tukit_t`, account
   `mcp-tukit`, an MCS pair, no capabilities, no_new_privs), the D-Bus
@@ -49,7 +50,16 @@ reboot
   denials. Phase 2, in the new snapshot: the package is there, rollback
   (and back), deleting snapshots (not the running or the default one),
   cleanup, and `run_in_snapshot` after the administrator enables it
-  (a failing command leaves no snapshot); again no denials.
+  (a failing command leaves no snapshot); again no denials. Between
+  them, the reboot phase: a reader may not reboot, a reboot into a
+  snapshot that is not the default is refused, `mcp-tukit` may start no
+  other unit (polkit), and then, after an approval, the reboot tool
+  reboots into phase 1's snapshot with `transactional-update reboot`.
+  Phase 2 checks that the system was rebooted, through the tool's unit
+  (when the journal is persistent), and that a reboot with nothing
+  pending is refused. With `REBOOT_METHOD=rebootmgr` or `kured` the
+  reboot waits for their window or drain: test on a system with the
+  default (`auto`, no rebootmgr running).
 - **They change the system for good:** users, the gateway's role data,
   an installed package and the default snapshot. Without `--disposable`
   they refuse to start (exit status 2).
@@ -70,8 +80,9 @@ reboot
 [os-autoinst-distri-opensuse](https://github.com/os-autoinst/os-autoinst-distri-opensuse)
 as `tests/transactional/mcp_tukit.pm`. It adds the repository with the
 packages (`MCP_TUKIT_REPO`) if given, installs `mcp-server-tukit-tests`
-with `trup_call`, reboots with `process_reboot`, runs phase 1, reboots,
-runs phase 2, and hands both JUnit results to openQA
+with `trup_call`, reboots with `process_reboot`, runs phase 1 and the
+reboot phase, watches the reboot the server's tool started
+(`process_reboot` without `trigger`), runs phase 2, and hands both JUnit results to openQA
 (`parse_extra_log`). On failure it uploads the journal of the gateway,
 tukitd and the instances, the SELinux denials since boot and the
 snapshot list.

@@ -70,6 +70,9 @@ type Backend interface {
 	// RollbackTo makes snapshot the default at next boot and returns the
 	// snapshot that will boot (a copy on some systems).
 	RollbackTo(ctx context.Context, snapshot string) (string, error)
+	// StartUnit asks systemd to start a unit (the reboot unit) and returns
+	// the job's object path. tukitd has no reboot of its own.
+	StartUnit(ctx context.Context, unit string) (string, error)
 }
 
 // Quote returns argv as a command line for tukitd, which splits it with

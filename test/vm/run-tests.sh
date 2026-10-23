@@ -10,16 +10,20 @@
 # test systems; the CI VM runs the same (test/vm/run-vm.sh). Next to it:
 #   tukitcall   the test client (test/tukitcall)
 #
-# Usage: run-tests.sh --disposable --phase 1|2 [--results DIR] [--package NAME]
+# Usage: run-tests.sh --disposable --phase 1|reboot|2 [--results DIR] [--package NAME]
 #
-# A change takes effect only at the next boot, so the tests come in two
-# phases with a reboot between them:
-#   1  set up users and roles, start the gateway, check the instance and
-#      the policies, install a package into a new snapshot (and fail to,
-#      and have nothing to do); then reboot
-#   2  the package is in the running system; roll back, delete and clean
-#      up snapshots, a command in a snapshot (with -allow-commands)
-# Phase 1 keeps what phase 2 needs in /var/lib/mcp-tukit-tests.
+# A change takes effect only at the next boot, so the tests come in
+# phases, and the reboot between them is the server's own:
+#   1       set up users and roles, start the gateway, check the instance
+#           and the policies, install a package into a new snapshot (and
+#           fail to, and have nothing to do)
+#   reboot  the reboot tool: refusals, then a reboot into the new
+#           snapshot, which goes down about 10 s after this phase ends;
+#           the caller waits for the system to come back
+#   2       the package is in the running system, the reboot went through
+#           the tool's unit; roll back, delete and clean up snapshots, a
+#           command in a snapshot (with -allow-commands)
+# Each phase keeps what the next needs in /var/lib/mcp-tukit-tests.
 #
 # It runs as root on a system that is there for testing: it creates
 # users (tuki, rita, ned), replaces the gateway's role data, installs a
@@ -37,7 +41,7 @@ state=/var/lib/mcp-tukit-tests
 failed=0
 disposable='' phase='' results='' package=''
 usage() {
-	echo "usage: $0 --disposable --phase 1|2 [--results DIR] [--package NAME]" >&2
+	echo "usage: $0 --disposable --phase 1|reboot|2 [--results DIR] [--package NAME]" >&2
 	exit 2
 }
 while [ $# -gt 0 ]; do
@@ -50,7 +54,7 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
-[ "$phase" = 1 ] || [ "$phase" = 2 ] || usage
+case $phase in 1 | reboot | 2) ;; *) usage ;; esac
 if [ -z "$disposable" ]; then
 	echo "$0: changes this system for good (users, role data, packages, the default snapshot);" >&2
 	echo "run it on a system that is there for testing, with --disposable" >&2
@@ -239,6 +243,11 @@ phase1() {
 	check "the D-Bus policy for mcp-tukit is installed" test -f /usr/share/dbus-1/system.d/mcp-tukit.conf
 	check "the definition is installed" test -f /usr/share/mcp-gateway/servers.d/tukit.yaml
 	check "the roles are installed" test -f /usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
+	local unit=/usr/lib/systemd/system/mcp-tukit-reboot.service
+	echo "  $(file_label "$unit") $unit"
+	check "the reboot unit is installed" test -f "$unit"
+	check "the reboot unit is labeled mcpsrv_tukit_unit_t" file_has_type "$unit" mcpsrv_tukit_unit_t
+	check "the polkit rule for the reboot unit is installed" test -f /usr/share/polkit-1/rules.d/60-mcp-tukit.rules
 	check "mcp-gateway --check accepts the definition" bash -c 'mcp-gateway --check >/dev/null 2>&1'
 	check "mcp-server-tukit --version" bash -c 'mcp-server-tukit -version | grep -q "^mcp-server-tukit "'
 
@@ -270,10 +279,12 @@ EOF
 	call tuki --method tools/list
 	check "tuki (operator) sees pkg_install" listed pkg_install
 	check "tuki sees get_status" listed get_status
+	check "tuki sees reboot" listed reboot
 	check "run_in_snapshot is not offered (no -allow-commands)" bash -c '! jq -e ".tools | map(.name) | index(\"run_in_snapshot\")" <<<"$1" >/dev/null' _ "$out"
 	call rita --method tools/list
 	check "rita (reader) sees list_snapshots" listed list_snapshots
 	check "rita does not see pkg_install" bash -c '! jq -e ".tools | map(.name) | index(\"pkg_install\")" <<<"$1" >/dev/null' _ "$out"
+	check "rita does not see reboot" bash -c '! jq -e ".tools | map(.name) | index(\"reboot\")" <<<"$1" >/dev/null' _ "$out"
 
 	section "Reading"
 	local active default
@@ -368,6 +379,35 @@ EOF
 	printf 'package=%s\nbefore=%s\nsnap=%s\n' "$package" "$before" "$snap" >"$state/phase1"
 }
 
+# --- the reboot ---------------------------------------------------------------
+
+phasereboot() {
+	[ -f "$state/phase1" ] || die "phase 1 has not run ($state/phase1 is missing)"
+	local package before snap
+	# shellcheck disable=SC1091
+	. "$state/phase1"
+	section "Reboot"
+	local active unit=mcp-tukit-reboot.service
+	active=$(active_snapshot)
+	unit_state() { systemctl show -p ActiveState --value "$unit"; }
+	tool rita reboot '{}'
+	check "rita (reader) may not reboot" refused
+	tool_approved tuki reboot "{\"snapshot\":\"$active\"}"
+	check "a reboot into a snapshot that is not the default is refused" tool_error_with "is not the default"
+	check "... and the reboot unit did not start" test "$(unit_state)" = inactive
+	# The unit's start alone, as mcp-tukit, outside the gateway: polkit
+	# allows the account this unit only.
+	check "mcp-tukit may not start another unit" fails runuser -u mcp-tukit -- \
+		busctl --system call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager StartUnit ss sshd.service replace
+	cat /proc/sys/kernel/random/boot_id >"$state/boot_id"
+	printf 'reboot_since=%s\n' "$since" >"$state/reboot"
+	tool_approved tuki reboot "{\"snapshot\":\"$snap\"}"
+	check "the reboot into snapshot $snap starts after an approval" test "$rc" = 0 -a "$(structured started)" = true -a "$(structured default)" = "$snap"
+	echo "  REBOOT_METHOD: $(structured method)"
+	check "the reboot unit runs" eventually 5 bash -c "systemctl show -p ActiveState --value $unit | grep -qxE 'activating|active'"
+	echo "  the system goes down in about 10 s"
+}
+
 # --- phase 2 -----------------------------------------------------------------
 
 phase2() {
@@ -375,8 +415,23 @@ phase2() {
 	local package before snap
 	# shellcheck disable=SC1091
 	. "$state/phase1"
+	local reboot_since=$since
+	if [ -f "$state/reboot" ]; then
+		# Denials count from the reboot phase on.
+		# shellcheck disable=SC1091
+		. "$state/reboot"
+		since=$reboot_since
+	fi
 	section "After the reboot"
 	check "SELinux is enforcing" test "$(getenforce)" = Enforcing
+	check "the system was rebooted" test "$(cat /proc/sys/kernel/random/boot_id)" != "$(cat "$state/boot_id" 2>/dev/null)"
+	if [ "$(journalctl --list-boots --no-pager 2>/dev/null | wc -l)" -ge 2 ]; then
+		journalctl -b -1 -u mcp-tukit-reboot.service --no-pager -o short-precise 2>/dev/null | tail -5 | sed 's/^/  /'
+		check "the previous boot ended through the reboot tool's unit" \
+			bash -c 'journalctl -b -1 -u mcp-tukit-reboot.service -o cat 2>/dev/null | grep -q .'
+	else
+		skip "the previous boot's journal (not persistent here)"
+	fi
 	check "the system runs the new snapshot $snap" test "$(active_snapshot)" = "$snap"
 	check "the package is installed" rpm -q "$package"
 	check "the gateway came up" wait_socket
@@ -396,8 +451,13 @@ phase2() {
 	check "rollback to the running snapshot $snap" test "$rc" = 0
 	local now
 	now=$(default_snapshot)
-	tool tuki get_status '{}'
 	echo "  default now $now"
+	if [ "$now" = "$snap" ]; then
+		tool_approved tuki reboot '{}'
+		check "reboot with nothing pending is refused" tool_error_with "no reboot pending"
+	else
+		skip "reboot with nothing pending (the rollback made a copy: $now is the default)"
+	fi
 
 	section "Deleting and cleaning up"
 	tool_approved tuki delete_snapshot "{\"snapshot\":\"$snap\"}"

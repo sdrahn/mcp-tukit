@@ -1,4 +1,4 @@
-policy_module(mcp_tukit, 0.1.0)
+policy_module(mcp_tukit, 0.2.0)
 
 # mcp-server-tukit (github.com/sdrahn/mcp-tukit) behind mcp-gateway.
 # The server holds no privileges of its own: every tool is a call to
@@ -6,7 +6,8 @@ policy_module(mcp_tukit, 0.1.0)
 # mounts and closes the snapshots and runs zypper in them. So the domain
 # needs the gateway's backend baseline and the D-Bus chat with tukitd,
 # nothing else: no capabilities, no mounts, no btrfs ioctls, no access
-# to /.snapshots, no exec of other programs. tukitd checks nothing
+# to /.snapshots, no exec of other programs. The reboot tool asks systemd
+# to start one unit, mcp-tukit-reboot.service, of a type of its own. tukitd checks nothing
 # itself: the D-Bus policy (dist/dbus) lets the account mcp-tukit call
 # it, and the gateway's roles and approvals decide who gets there.
 
@@ -35,3 +36,27 @@ optional_policy(`
 	allow mcpsrv_tukit_t tukitd_t:dbus send_msg;
 	allow tukitd_t mcpsrv_tukit_t:dbus send_msg;
 ')
+
+# The reboot tool: systemd starts mcp-tukit-reboot.service (which runs
+# transactional-update reboot) for the domain, after polkit allowed it
+# (dist/polkit), and checks the service class on the unit file's type:
+# this unit only. The type is a unit file type in either policy
+# (systemd_unit_file in Fedora-derived ones such as openSUSE's,
+# init_unit_file in the reference policy).
+type mcpsrv_tukit_unit_t;
+ifdef(`systemd_unit_file',`
+	systemd_unit_file(mcpsrv_tukit_unit_t)
+',`
+	init_unit_file(mcpsrv_tukit_unit_t)
+')
+init_dbus_chat(mcpsrv_tukit_t)
+gen_require(`
+	class service { start status };
+')
+allow mcpsrv_tukit_t mcpsrv_tukit_unit_t:service { start status };
+optional_policy(`
+	policykit_dbus_chat(mcpsrv_tukit_t)
+')
+# The reboot method, from transactional-update.conf below /etc and
+# /usr/etc.
+files_read_usr_files(mcpsrv_tukit_t)

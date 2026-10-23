@@ -43,7 +43,7 @@ configuration.
 | Package | Contents |
 |---|---|
 | `mcp-server-tukit` | the server, `/usr/bin/mcp-server-tukit`; requires `tukitd` |
-| `mcp-server-tukit-gateway` | the gateway setup: definition `/usr/share/mcp-gateway/servers.d/tukit.yaml`, roles `tukit-reader` and `tukit-operator`, the D-Bus policy `/usr/share/dbus-1/system.d/mcp-tukit.conf`, the account `mcp-tukit` (sysusers); requires `mcp-gateway`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
+| `mcp-server-tukit-gateway` | the gateway setup: definition `/usr/share/mcp-gateway/servers.d/tukit.yaml`, roles `tukit-reader` and `tukit-operator`, the D-Bus policy `/usr/share/dbus-1/system.d/mcp-tukit.conf`, the account `mcp-tukit` (sysusers), the reboot tool's unit `mcp-tukit-reboot.service` (`transactional-update reboot`) and the polkit rule `60-mcp-tukit.rules` that lets the account start it; requires `mcp-gateway`, `polkit`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
 | `mcp-server-tukit-selinux` | the module `mcp_tukit` (domain `mcpsrv_tukit_t`), installed with the `%selinux_*` macros; requires `mcp-gateway-selinux` |
 | `mcp-server-tukit-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1|2 --results DIR`, TAP and JUnit results) and their client; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
 
@@ -71,6 +71,11 @@ keeps the wrong label (mcp-gateway user guide, chapter 2).
   `mcp-tukit` (no login, no shell), its policy makes every change wait
   for a human's approval, and the server's process runs without
   capabilities in a confined domain.
+- **polkit rule:** `60-mcp-tukit.rules` lets `mcp-tukit` start
+  `mcp-tukit-reboot.service` (and nothing else) without a password;
+  polkit rules need the security team's review and whitelisting too
+  (rpmlintrc filters as for the D-Bus policy). Same argument: every
+  reboot waits for its own approval.
 - **Licenses:** MIT; the binary also contains the vendored godbus
   (BSD-2-Clause), stated in `License:`.
 - **openQA:** the test module and its plan are in

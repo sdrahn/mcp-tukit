@@ -4,6 +4,9 @@
 # passing.
 addFilter("suse-dbus-unauthorized-service")
 addFilter("dbus-file-unauthorized")
+# The same for the polkit rule that lets mcp-tukit start the reboot unit.
+addFilter("polkit-untracked-privilege")
+addFilter("polkit-unauthorized-rules")
 # The package creates its system user through sysusers.
 addFilter("non-standard-uid")
 addFilter("non-standard-gid")

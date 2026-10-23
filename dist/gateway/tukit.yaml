@@ -7,8 +7,10 @@
 # (no capabilities, NoNewPrivileges, read-only system, no network) as
 # the account mcp-tukit; tukitd, which the D-Bus policy
 # /usr/share/dbus-1/system.d/mcp-tukit.conf lets that account call, does
-# the work in the new snapshot. Roles: tukit-reader, tukit-operator
-# (every change approved).
+# the work in the new snapshot. Its reboot tool starts the unit
+# mcp-tukit-reboot.service (transactional-update reboot), which polkit
+# allows the account and nothing else. Roles: tukit-reader,
+# tukit-operator (every change approved, every reboot by itself).
 version: 1
 name: tukit
 command: ["/usr/bin/mcp-server-tukit"]
@@ -22,9 +24,9 @@ network: false
 landlock: {}
 tool_notes:
   pkg_install: >-
-    Changes take effect at the next reboot, which this server does not
-    do. Several changes before a reboot add up (each builds on the
-    default snapshot).
+    Changes take effect at the next reboot (the tool reboot, which needs
+    an approval of its own). Several changes before a reboot add up
+    (each builds on the default snapshot).
   update_system: >-
     Can take many minutes. On SL Micro and Leap Micro use mode update
     (or patch); dist-upgrade is for MicroOS.

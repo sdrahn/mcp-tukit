@@ -63,7 +63,7 @@ func TestStdio(t *testing.T) {
 	if v := answers["1"]["result"].(map[string]any)["protocolVersion"]; v != "2025-06-18" {
 		t.Errorf("protocol version %v", v)
 	}
-	if n := len(answers["2"]["result"].(map[string]any)["tools"].([]any)); n != 8 {
+	if n := len(answers["2"]["result"].(map[string]any)["tools"].([]any)); n != 9 {
 		t.Errorf("%d tools", n)
 	}
 	res := answers["3"]["result"].(map[string]any)
@@ -83,7 +83,7 @@ func TestStdio(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	never := func() (tukit.Backend, func(), error) { t.Fatal("connected"); return nil, nil, nil }
-	for _, args := range [][]string{{"-base", "latest"}, {"-timeout", "1s"}, {"extra"}} {
+	for _, args := range [][]string{{"-base", "latest"}, {"-timeout", "1s"}, {"extra"}, {"-reboot-unit", "reboot.target"}, {"-reboot-unit", "../x.service"}} {
 		if code := run(args, strings.NewReader(""), io.Discard, io.Discard, never); code != 2 {
 			t.Errorf("%v: exit %d", args, code)
 		}

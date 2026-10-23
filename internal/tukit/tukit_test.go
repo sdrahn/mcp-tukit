@@ -237,3 +237,44 @@ func TestLazy(t *testing.T) {
 		t.Fatalf("list without tukitd: %v", err)
 	}
 }
+
+type fakeSystemd struct {
+	mu      sync.Mutex
+	started []string
+}
+
+func (f *fakeSystemd) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.started) }
+
+func (f *fakeSystemd) StartUnit(name, mode string) (dbus.ObjectPath, *dbus.Error) {
+	if name != "mcp-tukit-reboot.service" || mode != "replace" {
+		return "", dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit " + name + " not found."})
+	}
+	f.mu.Lock()
+	f.started = append(f.started, name)
+	f.mu.Unlock()
+	return "/org/freedesktop/systemd1/job/42", nil
+}
+
+func TestStartUnitOnBus(t *testing.T) {
+	addr := privateBus(t)
+	srv := dial(t, addr)
+	f := &fakeSystemd{}
+	if err := srv.Export(f, systemdPath, systemdIface); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.RequestName(systemdName, dbus.NameFlagDoNotQueue); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewClient(dial(t, addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	job, err := c.StartUnit(ctx, "mcp-tukit-reboot.service")
+	if err != nil || job != "/org/freedesktop/systemd1/job/42" || f.count() != 1 {
+		t.Fatalf("start: %q %v %d", job, err, f.count())
+	}
+	if _, err := c.StartUnit(ctx, "other.service"); err == nil || !strings.Contains(err.Error(), "there is no unit other.service") {
+		t.Fatalf("unknown unit: %v", err)
+	}
+}

@@ -8,10 +8,11 @@
 #          with SELinux enforcing: install the packages with
 #          transactional-update, reboot, phase 1 of the tests (instance
 #          domain and account, D-Bus policy, roles and approvals, a
-#          package installed into a new snapshot), reboot into it, phase 2
-#          (the package active, rollback, deleting and cleaning up
-#          snapshots, commands in a snapshot). Each check becomes a result
-#          of its own (JUnit).
+#          package installed into a new snapshot), the reboot phase (the
+#          server's reboot tool, after an approval, takes the system down
+#          into the new snapshot), phase 2 (the package active, rollback,
+#          deleting and cleaning up snapshots, commands in a snapshot).
+#          Each check becomes a result of its own (JUnit).
 # Maintainer: mcp-tukit maintainers
 
 use Mojo::Base 'consoletest';
@@ -51,8 +52,10 @@ sub run {
     process_reboot(trigger => 1);
     select_serial_terminal;
     run_phase(1);
-    # Phase 2 runs in the snapshot phase 1 made the default.
-    process_reboot(trigger => 1);
+    # The reboot tool reboots about 10 s after the phase ends: watch for
+    # it (no trigger) and boot into the snapshot phase 1 made the default.
+    run_phase('reboot');
+    process_reboot(trigger => 0);
     select_serial_terminal;
     run_phase(2);
 }

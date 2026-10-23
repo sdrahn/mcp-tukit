@@ -58,11 +58,12 @@ reboot
   reboots into phase 1's snapshot with `transactional-update reboot`.
   Phase 2 checks that the system was rebooted, through the tool's unit
   (when the journal is persistent), and that a reboot with nothing
-  pending is refused. With `REBOOT_METHOD=rebootmgr` or `kured` the
-  reboot waits for their window or drain: test on a system with the
-  default (`auto`, no rebootmgr running).
+  pending is refused. The reboot phase sets `REBOOT_METHOD=systemd` in
+  `/etc/transactional-update.conf`, so that the reboot happens at once:
+  with the default `auto`, a system running rebootmgr (MicroOS does)
+  reboots in rebootmgr's maintenance window, as it should.
 - **They change the system for good:** users, the gateway's role data,
-  an installed package and the default snapshot. Without `--disposable`
+  an installed package, the default snapshot and `REBOOT_METHOD`. Without `--disposable`
   they refuse to start (exit status 2).
 - **The package to install:** the first of `tree`, `figlet`, `sl`,
   `hello` that the repositories have and the system has not, or

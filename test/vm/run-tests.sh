@@ -27,7 +27,8 @@
 #
 # It runs as root on a system that is there for testing: it creates
 # users (tuki, rita, ned), replaces the gateway's role data, installs a
-# package and changes the default snapshot, and does not undo any of it.
+# package, changes the default snapshot and sets REBOOT_METHOD=systemd in
+# /etc/transactional-update.conf, and does not undo any of it.
 # --disposable says that this is fine.
 #   --results DIR   writes results.tap (TAP) and results.xml (JUnit) there
 #   --package NAME  the package to install (default: the first of tree,
@@ -421,9 +422,13 @@ phasereboot() {
 	fi
 	cat /proc/sys/kernel/random/boot_id >"$state/boot_id"
 	printf 'reboot_since=%s\n' "$since" >"$state/reboot"
+	# At once, not in rebootmgr's maintenance window (MicroOS runs
+	# rebootmgr, and REBOOT_METHOD=auto hands the reboot to it): the
+	# administrator's configuration, the last assignment wins.
+	echo 'REBOOT_METHOD=systemd' >>/etc/transactional-update.conf
 	tool_approved tuki reboot "{\"snapshot\":\"$snap\"}"
 	check "the reboot into snapshot $snap starts after an approval" test "$rc" = 0 -a "$(structured started)" = true -a "$(structured default)" = "$snap"
-	echo "  REBOOT_METHOD: $(structured method)"
+	check "the result names the configured REBOOT_METHOD (systemd)" test "$(structured method)" = systemd
 	check "the reboot unit runs" eventually 5 bash -c "systemctl show -p ActiveState --value $unit | grep -qxE 'activating|active'"
 	echo "  the system goes down in about 10 s"
 }

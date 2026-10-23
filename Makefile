@@ -10,6 +10,7 @@ LDFLAGS     ?= -s -w -X main.version=$(VERSION)
 
 PREFIX      ?= /usr
 BINDIR      ?= $(PREFIX)/bin
+LIBEXECDIR  ?= $(PREFIX)/libexec
 DATADIR     ?= $(PREFIX)/share
 SYSUSERSDIR ?= $(PREFIX)/lib/sysusers.d
 SELINUXTYPE ?= targeted
@@ -19,12 +20,17 @@ SELINUX_DEVEL ?= $(DATADIR)/selinux/devel/Makefile
 # mcp-gateway-selinux; or GATEWAY_IF=../mcp-gateway/selinux/mcp_gateway.if.
 GATEWAY_IF  ?= $(DATADIR)/selinux/devel/include/services/mcp_gateway.if
 
-.PHONY: all build test vet fmt-check check selinux install install-selinux clean
+.PHONY: all build build-tests test vet fmt-check check selinux install install-selinux install-tests clean
 
 all: build
 
 build:
 	$(GO) build $(BUILDFLAGS) -ldflags "$(LDFLAGS)" -o bin/mcp-server-tukit ./cmd/mcp-server-tukit
+
+# The functional tests (test/vm/run-tests.sh) and their client, packaged
+# as mcp-server-tukit-tests (openQA, the CI VM).
+build-tests:
+	$(GO) build $(BUILDFLAGS) -ldflags "-s -w" -o bin/tests/tukitcall ./test/tukitcall
 
 test:
 	$(GO) test -race ./...
@@ -58,6 +64,10 @@ install: build
 	install -Dm0644 dist/gateway/roles.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
 	install -Dm0644 dist/dbus/mcp-tukit.conf $(DESTDIR)$(DATADIR)/dbus-1/system.d/mcp-tukit.conf
 	install -Dm0644 dist/sysusers.d/mcp-tukit.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-tukit.conf
+
+install-tests: build-tests
+	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-server-tukit/tests/run-tests.sh
+	install -Dm0755 bin/tests/tukitcall $(DESTDIR)$(LIBEXECDIR)/mcp-server-tukit/tests/tukitcall
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)

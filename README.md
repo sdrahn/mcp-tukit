@@ -14,8 +14,9 @@ in Go and meant to run behind
 an SELinux domain of its own, with SELinux enforcing.
 
 Status: first version (0.1). Tested against a fake tukitd on a private
-D-Bus and with the gateway's `inspect`; not yet on a real Leap Micro or
-SL Micro host.
+D-Bus and with the gateway's `inspect`; the functional tests for real
+transactional systems (CI's MicroOS VM, openQA) are written and not yet
+run.
 
 ## How it works
 
@@ -87,7 +88,7 @@ snapshots), `-version`.
 ## Behind mcp-gateway
 
 `dist/` holds what a package installs for the gateway (the package
-`mcp-server-tukit-gateway` in `packaging/mcp-server-tukit.spec`):
+`mcp-server-tukit-gateway` in `packaging/suse/mcp-server-tukit.spec`):
 
 | File | Installed as |
 |---|---|
@@ -151,7 +152,23 @@ make check      # gofmt, go vet, go test -race (the tukit client tests need dbus
 make build      # bin/mcp-server-tukit
 make selinux GATEWAY_IF=../mcp-gateway/selinux/mcp_gateway.if   # dist/selinux/mcp_tukit.pp
 make install install-selinux DESTDIR=...
+make build-tests install-tests DESTDIR=...   # the functional tests, as packaged
 ```
+
+## Packaging and tests
+
+| Path | What |
+|---|---|
+| `packaging/suse/` | the OBS package: spec, `_service`, rpmlintrc and how to set it up ([README](packaging/suse/README.md)); packages `mcp-server-tukit`, `-gateway`, `-selinux`, `-tests` |
+| `test/vm/run-tests.sh` | the functional tests on a real transactional system with SELinux enforcing, in two phases with a reboot between them (package `mcp-server-tukit-tests`) |
+| `test/tukitcall/` | their client: one MCP request through the gateway's `mcp-connect` |
+| `test/vm/run-vm.sh`, `prepare.sh` | CI: a MicroOS (and Leap Micro) VM provisioned by Combustion, the packages installed with `transactional-update`, both phases with reboots |
+| `test/openqa/` | the openQA test module and the plan for openQA ([README](test/openqa/README.md)) |
+
+CI (`.github/workflows/ci.yml`): Go tests and lint; the SELinux module
+against the reference policy; mcp-gateway's packages built from its
+source; this package built as OBS builds it in Tumbleweed and Leap 16
+containers, with rpmlint and an installation test; then the VM tests.
 
 Requirements: Go ≥ 1.24; for the module the reference-policy devel files
 (`selinux-policy-devel` on openSUSE/SLES) and the gateway's interface
@@ -164,8 +181,8 @@ versions up to 2025-11-25, cancellation, progress).
 
 ## Not yet
 
-- Testing on real Leap Micro 6.x, SL Micro 6.x and SLES 16.1 (immutable)
-  hosts with SELinux enforcing, and a profiling run
+- Running the functional tests: the CI VM job (MicroOS, Leap Micro) and
+  openQA on SL Micro 6.x and SLES 16.1 (immutable); and a profiling run
   (`mcp-gateway-admin profile`) to confirm the domain needs nothing more.
 - tukitd before 6.0 has no `…WithOpts` methods: the server falls back to
   `Open` and the snapshot gets no description.

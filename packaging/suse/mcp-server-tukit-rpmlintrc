@@ -1,0 +1,12 @@
+# D-Bus policy files must be reviewed and whitelisted by the SUSE security
+# team before the package can enter openSUSE:Factory / SLE (see
+# packaging/suse/README.md). Until then, keep builds in devel/home projects
+# passing.
+addFilter("suse-dbus-unauthorized-service")
+addFilter("dbus-file-unauthorized")
+# The package creates its system user through sysusers.
+addFilter("non-standard-uid")
+addFilter("non-standard-gid")
+# The functional tests: shell script and test client below
+# /usr/libexec, for test systems only (openQA).
+addFilter("mcp-server-tukit-tests.* no-manual-page-for-binary")

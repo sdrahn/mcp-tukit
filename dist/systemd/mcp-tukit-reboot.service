@@ -1,7 +1,7 @@
 # The reboot of mcp-server-tukit's reboot tool, behind mcp-gateway: the
-# server's domain (mcpsrv_tukit_t) may start this unit and no other
-# (SELinux type mcpsrv_tukit_unit_t), only after the gateway's policy
-# and an approval let the call through. It reboots as
+# server's domain (mcpsrv_tukit_t) may start this unit and the apply
+# unit, no other (SELinux type mcpsrv_tukit_unit_t), only after the
+# gateway's policy and an approval let the call through. It reboots as
 # transactional-update reboot does, with the administrator's
 # REBOOT_METHOD (transactional-update.conf): systemd (soft-reboot or kexec
 # where tukit.conf allows them), rebootmgr's maintenance window, kured,

@@ -12,7 +12,7 @@
 # bus policy can let a sandboxed account in. The instance runs as root
 # with the capabilities of a root service, still in its SELinux domain
 # mcpsrv_tukit_t, which lets it do nothing but talk to tukitd and start
-# the reboot unit; tukitd does the work in the new snapshot. Every call
+# the reboot and apply units; tukitd does the work in the new snapshot. Every call
 # but the reading ones waits for an approval (roles tukit-reader,
 # tukit-operator; every reboot approved by itself).
 version: 1

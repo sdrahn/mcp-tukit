@@ -43,7 +43,7 @@ configuration.
 | Package | Contents |
 |---|---|
 | `mcp-server-tukit` | the server, `/usr/bin/mcp-server-tukit`; requires `tukitd` |
-| `mcp-server-tukit-gateway` | the gateway setup: the privileged definition `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` (the administrator links it into `/etc/mcp-gateway/servers.d`), roles `tukit-reader` and `tukit-operator`, and the reboot tool's unit `mcp-tukit-reboot.service` (`transactional-update reboot`); requires `mcp-gateway`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
+| `mcp-server-tukit-gateway` | the gateway setup: the privileged definition `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` (the administrator links it into `/etc/mcp-gateway/servers.d`), roles `tukit-reader` and `tukit-operator`, and the units of the reboot and apply tools, `mcp-tukit-reboot.service` (`transactional-update reboot`) and `mcp-tukit-apply.service` (`transactional-update apply`); requires `mcp-gateway`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
 | `mcp-server-tukit-selinux` | the module `mcp_tukit` (domain `mcpsrv_tukit_t`), installed with the `%selinux_*` macros; requires `mcp-gateway-selinux` |
 | `mcp-server-tukit-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1|reboot|2 --results DIR`, TAP and JUnit results) and their client; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
 

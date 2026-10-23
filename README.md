@@ -30,8 +30,8 @@ call to tukitd (`org.opensuse.tukit` on the system bus), which creates
 the snapshot, mounts it, runs zypper in it and makes it the next
 default. The server process needs no mounts, no btrfs ioctls, no files
 and no network: its SELinux domain allows the gateway's backend
-baseline, the D-Bus chat with tukitd, and starting the reboot unit, and
-nothing else.
+baseline, the D-Bus chat with tukitd, and starting the reboot and apply
+units, and nothing else.
 
 It still runs as a **privileged** server (root, all capabilities, no
 MCS pair): tukitd registers its D-Bus methods without
@@ -82,6 +82,7 @@ anything with spaces or shell characters are refused.
 | `rollback` | yes | make a snapshot the default (next boot) |
 | `delete_snapshot` | yes | delete a snapshot (never the active or the default one) |
 | `cleanup_snapshots` | yes | tukit cleanup |
+| `apply` | yes | make the default snapshot's `/usr`, `/etc` and `/boot` the running system's without a reboot, as `transactional-update apply` does (`snapshot`: the one you expect to apply) |
 | `reboot` | yes | reboot into the default snapshot, as `transactional-update reboot` does (`snapshot`: the one you expect to boot; `force`) |
 | `run_in_snapshot` | yes | any command as root in a new snapshot — **only with `-allow-commands`** |
 
@@ -114,8 +115,31 @@ with an approval of its own for every call (role `tukit-operator`, scope
   start units without asking polkit.)
 - `-reboot-unit ""` turns the tool off.
 
+### Applying without a reboot
+
+`apply` is the other way to make a change live: it runs
+`transactional-update apply`, which mounts the default snapshot's
+`/usr`, `/etc` and `/boot` into the running system, so that newly
+installed programs can be used at once. It needs an approval of its own
+for every call, like `reboot`.
+
+- As with an update on a system without snapshots, running programs
+  keep the files they have open and services are not restarted; a new
+  kernel or initrd takes effect only at the next reboot. The tool's
+  description and result say so.
+- It refuses when there is nothing to apply (the default snapshot is
+  the running one), when `snapshot` is given and is not the default,
+  and while a change of the same instance is running.
+- The same way as for `reboot`, the server starts one unit,
+  `mcp-tukit-apply.service`; unlike `reboot`, it waits for the unit's
+  end and reports whether `transactional-update apply` succeeded (the
+  details are in `journalctl -u mcp-tukit-apply.service`). SELinux lets
+  the domain start this unit (its own type,
+  `mcpsrv_tukit_apply_unit_t`) and the reboot unit, no other.
+- `-apply-unit ""` turns the tool off.
+
 Options: `-base` (default base snapshot), `-timeout`, `-zypper` (path
-in the snapshot), `-allow-commands`, `-reboot-unit`, `-instructions`
+in the snapshot), `-allow-commands`, `-reboot-unit`, `-apply-unit`, `-instructions`
 (text that opens the server's instructions), `-check` (connect to tukitd and list the
 snapshots), `-version`.
 
@@ -147,8 +171,9 @@ The three layers of the gateway's chapter 13 apply:
 - **The gateway's policy** decides who may call which tool:
   `tukit-reader` gets `get_status` and `list_snapshots`;
   `tukit-operator` gets those and every change **with approval**
-  (out-of-band, in Cockpit); `rollback`, `reboot` and `run_in_snapshot`
-  need an approval of their own each time (scope `once`).
+  (out-of-band, in Cockpit); `rollback`, `apply`, `reboot` and
+  `run_in_snapshot` need an approval of their own each time (scope
+  `once`).
 - **tukitd** answers callers with `CAP_SYS_ADMIN` only, and does the
   work as root. The gateway's privileged server is the only such caller
   it gets through MCP; whoever can call it can run commands as root in
@@ -157,7 +182,7 @@ The three layers of the gateway's chapter 13 apply:
   by permissions naming server and tool without wildcards, and every
   decision on it goes to the kernel audit log).
 - **SELinux** keeps the privileged instance to the D-Bus chat with
-  tukitd and starting the reboot unit.
+  tukitd and starting the reboot and apply units.
 
 Bind users or groups to the roles in the gateway's role data:
 
@@ -172,8 +197,9 @@ bindings:
 `mcp_tukit.te` uses the gateway's `mcp_gateway_backend_template(tukit)`
 (from `mcp-gateway-selinux`) and adds `dbus_system_bus_client` and
 `dbus send_msg` both ways between `mcpsrv_tukit_t` and tukitd's domain;
-for the reboot tool, the D-Bus chat with systemd and `service start` on
-`mcpsrv_tukit_unit_t`, the reboot unit's own type, only.
+for the reboot and apply tools, the D-Bus chat with systemd and
+`service start`/`status` on `mcpsrv_tukit_unit_t` and
+`mcpsrv_tukit_apply_unit_t`, the two units' own types, only.
 openSUSE's policy has no module for tukitd (`/usr/sbin/tukitd` is
 `bin_t`), so systemd runs it as `unconfined_service_t`; a block for a
 future `tukitd_t` is included. The instance runs with its own MCS
@@ -233,7 +259,7 @@ versions up to 2025-11-25, cancellation, progress).
 - tukitd before 6.0 has no `…WithOpts` methods: the server falls back to
   `Open` and the snapshot gets no description.
 - What `transactional-update` does beyond tukit is not done: bootloader
-  and initrd handling outside package scriptlets, `apply`, `kdump`,
+  and initrd handling outside package scriptlets, `apply-oci`, `kdump`,
   `register`, `migration`, `setup-selinux`.
 - Changes to `/etc` overlays are handled by tukit; files below `/etc`,
   `/var` and `/home` are not this server's business (they are writable

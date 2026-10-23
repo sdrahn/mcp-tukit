@@ -1,4 +1,4 @@
-policy_module(mcp_tukit, 0.2.0)
+policy_module(mcp_tukit, 0.3.0)
 
 # mcp-server-tukit (github.com/sdrahn/mcp-tukit) behind mcp-gateway.
 # Every tool is a call to tukitd (org.opensuse.tukit) over the system
@@ -6,8 +6,8 @@ policy_module(mcp_tukit, 0.2.0)
 # zypper in them. tukitd answers only callers with CAP_SYS_ADMIN, so the
 # instance runs privileged (root, all capabilities); this domain is what
 # keeps it to its job: the gateway's backend baseline and the D-Bus chat
-# with tukitd, and systemd starting one unit, mcp-tukit-reboot.service,
-# of a type of its own. No capability is allowed: holding one is all
+# with tukitd, and systemd starting two units, mcp-tukit-reboot.service
+# and mcp-tukit-apply.service, of types of their own. No capability is allowed: holding one is all
 # tukitd checks, using one needs none here. No mounts, no btrfs ioctls,
 # no access to /.snapshots, no exec of other programs. The gateway's
 # roles and approvals decide who gets there.
@@ -55,6 +55,17 @@ gen_require(`
 	class service { start status };
 ')
 allow mcpsrv_tukit_t mcpsrv_tukit_unit_t:service { start status };
+
+# The apply tool: mcp-tukit-apply.service (transactional-update apply),
+# a type of its own; status also lets the tool read the unit's job and
+# result while it waits for the end.
+type mcpsrv_tukit_apply_unit_t;
+ifdef(`systemd_unit_file',`
+	systemd_unit_file(mcpsrv_tukit_apply_unit_t)
+',`
+	init_unit_file(mcpsrv_tukit_apply_unit_t)
+')
+allow mcpsrv_tukit_t mcpsrv_tukit_apply_unit_t:service { start status };
 # The reboot method, from transactional-update.conf below /etc and
 # /usr/etc.
 files_read_usr_files(mcpsrv_tukit_t)

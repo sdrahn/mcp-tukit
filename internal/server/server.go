@@ -42,6 +42,9 @@ type Config struct {
 	// RebootUnit is the systemd unit the reboot tool starts (it runs
 	// transactional-update reboot); empty: no reboot tool.
 	RebootUnit string
+	// ApplyUnit is the systemd unit the apply tool runs (it runs
+	// transactional-update apply); empty: no apply tool.
+	ApplyUnit string
 	// RebootConfig are transactional-update's configuration files, in the
 	// order it reads them, for the reboot method the result names.
 	RebootConfig []string
@@ -139,6 +142,11 @@ func (s *Server) instructions() string {
 	} else {
 		out += " This server does not reboot the system; say that a reboot is needed when a change was applied."
 	}
+	if s.cfg.ApplyUnit != "" {
+		out += " apply makes the default snapshot's /usr, /etc and /boot those of the running system without a reboot " +
+			"(transactional-update apply), so that newly installed programs can be used at once; running programs and services " +
+			"keep their old files until restarted, and a new kernel needs a reboot."
+	}
 	if s.cfg.AllowCommands {
 		out += " run_in_snapshot runs any command as root in a new snapshot; prefer the package tools where they do the job."
 	}
@@ -230,6 +238,18 @@ func (s *Server) tools() []*tool {
 				"force":    map[string]any{"type": "boolean", "description": "reboot even though no snapshot is pending (the default is the running one)"},
 			}, nil),
 			output: rebootSchema, call: s.reboot})
+	}
+	if s.cfg.ApplyUnit != "" {
+		ts = append(ts, &tool{name: "apply", title: "Apply the default snapshot to the running system",
+			description: "Mounts the default snapshot's /usr, /etc and /boot into the running system, without a reboot, as transactional-update apply does: " +
+				"newly installed programs can be used at once. Like an update on a system without snapshots, running programs keep the files they have open, " +
+				"services are not restarted, and a new kernel or initrd takes effect only at the next reboot. " +
+				"Refused when there is nothing to apply (the default snapshot is the running one), when snapshot is given and is not the default, " +
+				"and while a change of this server runs.",
+			input: object(map[string]any{
+				"snapshot": map[string]any{"type": "string", "pattern": "^[0-9]{1,10}$", "description": "the snapshot you expect to apply: refused if it is not the default (recommended)"},
+			}, nil),
+			output: applySchema, call: s.apply})
 	}
 	if s.cfg.AllowCommands {
 		ts = append(ts, &tool{name: "run_in_snapshot", title: "Run a command in a new snapshot",
@@ -338,6 +358,13 @@ var rebootSchema = map[string]any{"type": "object", "properties": map[string]any
 	"method":  map[string]any{"type": "string", "description": "transactional-update's REBOOT_METHOD"},
 	"unit":    map[string]any{"type": "string"},
 }, "required": []string{"started"}}
+
+var applySchema = map[string]any{"type": "object", "properties": map[string]any{
+	"applied":  map[string]any{"type": "boolean"},
+	"snapshot": map[string]any{"type": "string", "description": "the snapshot applied (the default)"},
+	"active":   map[string]any{"type": "string", "description": "the snapshot tukit reports as running afterwards"},
+	"result":   map[string]any{"type": "string", "description": "the result of the apply unit (systemd): success, exit-code, ..."},
+}, "required": []string{"applied"}}
 
 var simpleSchema = map[string]any{"type": "object", "properties": map[string]any{
 	"done": map[string]any{"type": "boolean"},
@@ -1008,4 +1035,72 @@ func rebootMethod(files []string) string {
 		}
 	}
 	return method
+}
+
+func (s *Server) apply(ctx context.Context, args json.RawMessage) map[string]any {
+	var a struct {
+		Snapshot string `json:"snapshot"`
+	}
+	if err := decode(args, &a); err != nil {
+		return toolError("%v", err)
+	}
+	if a.Snapshot != "" && !tukit.ValidSnapshot(a.Snapshot, false) {
+		return toolError("snapshot %q: must be a snapshot number", a.Snapshot)
+	}
+	// Not in the middle of a change: the snapshot would not be complete.
+	if !s.change.TryLock() {
+		return toolError("a change of this server is running; apply once it has ended")
+	}
+	defer s.change.Unlock()
+	ctx, cancel := opContext(context.WithoutCancel(ctx))
+	defer cancel()
+	active, def, err := s.activeDefault(ctx)
+	if err != nil {
+		return toolError("listing snapshots: %v", err)
+	}
+	if def == "" {
+		return toolError("tukit names no default snapshot; nothing applied")
+	}
+	if a.Snapshot != "" && a.Snapshot != def {
+		return toolError("snapshot %s is not the default: apply would make snapshot %s the running system's; nothing applied", a.Snapshot, def)
+	}
+	if def == active {
+		return toolError("nothing to apply: the default snapshot %s is the running one", def)
+	}
+	run, err := s.tk.RunUnit(ctx, s.cfg.ApplyUnit)
+	if err != nil {
+		s.logf("apply %s: %v", def, err)
+		return toolError("apply: %v", err)
+	}
+	if !run.OK() {
+		s.logf("apply %s: %s ended %s (%s)", def, s.cfg.ApplyUnit, run.Result, run.ActiveState)
+		return result(fmt.Sprintf("transactional-update apply failed (%s, %s): snapshot %s is not applied; it still boots next. "+
+			"The administrator finds why in journalctl -u %s.", run.Result, run.ActiveState, def, s.cfg.ApplyUnit),
+			map[string]any{"applied": false, "snapshot": def, "result": run.Result}, true)
+	}
+	now, _, err := s.activeDefault(ctx)
+	if err != nil {
+		now = ""
+	}
+	s.logf("apply %s: %s done (running %s before, %s now)", def, s.cfg.ApplyUnit, active, now)
+	text := fmt.Sprintf("Snapshot %s applied: its /usr, /etc and /boot are the running system's now. "+
+		"Running programs and services keep their old files until they are restarted; a new kernel or initrd takes effect at the next reboot.", def)
+	return result(text, map[string]any{"applied": true, "snapshot": def, "active": now, "result": run.Result}, false)
+}
+
+// activeDefault returns the running and the default snapshot.
+func (s *Server) activeDefault(ctx context.Context) (active, def string, err error) {
+	snaps, err := s.snapshots(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	for _, sn := range snaps {
+		if sn.Active {
+			active = sn.Number
+		}
+		if sn.Default {
+			def = sn.Number
+		}
+	}
+	return active, def, nil
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 )
 
 // Quote's words come back as they were from a POSIX shell, which splits
@@ -276,5 +277,104 @@ func TestStartUnitOnBus(t *testing.T) {
 	}
 	if _, err := c.StartUnit(ctx, "other.service"); err == nil || !strings.Contains(err.Error(), "there is no unit other.service") {
 		t.Fatalf("unknown unit: %v", err)
+	}
+}
+
+// jobProp is systemd's Job property, (uo).
+type jobProp struct {
+	ID   uint32
+	Path dbus.ObjectPath
+}
+
+// fakeApplyd is systemd's manager with one oneshot unit, whose run ends
+// after a moment with the result it is set to.
+type fakeApplyd struct {
+	props *prop.Properties
+	mu    sync.Mutex
+	res   string
+}
+
+func (f *fakeApplyd) result() string     { f.mu.Lock(); defer f.mu.Unlock(); return f.res }
+func (f *fakeApplyd) setResult(r string) { f.mu.Lock(); defer f.mu.Unlock(); f.res = r }
+
+const applyPath = dbus.ObjectPath("/org/freedesktop/systemd1/unit/mcp_2dtukit_2dapply_2eservice")
+
+func (f *fakeApplyd) StartUnit(name, mode string) (dbus.ObjectPath, *dbus.Error) {
+	if name != "mcp-tukit-apply.service" {
+		return "", dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit " + name + " not found."})
+	}
+	f.props.SetMust("org.freedesktop.systemd1.Unit", "Job", jobProp{7, "/org/freedesktop/systemd1/job/7"})
+	f.props.SetMust("org.freedesktop.systemd1.Unit", "ActiveState", "activating")
+	result := f.result()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		state := "inactive"
+		if result != "success" {
+			state = "failed"
+		}
+		f.props.SetMust("org.freedesktop.systemd1.Service", "Result", result)
+		f.props.SetMust("org.freedesktop.systemd1.Unit", "ActiveState", state)
+		f.props.SetMust("org.freedesktop.systemd1.Unit", "Job", jobProp{0, "/"})
+	}()
+	return "/org/freedesktop/systemd1/job/7", nil
+}
+
+func (f *fakeApplyd) GetUnit(name string) (dbus.ObjectPath, *dbus.Error) {
+	if name != "mcp-tukit-apply.service" {
+		return "", dbus.NewError("org.freedesktop.systemd1.NoSuchUnit", []any{"Unit " + name + " not loaded."})
+	}
+	return applyPath, nil
+}
+
+func TestRunUnitOnBus(t *testing.T) {
+	addr := privateBus(t)
+	srv := dial(t, addr)
+	f := &fakeApplyd{res: "success"}
+	props, err := prop.Export(srv, applyPath, prop.Map{
+		"org.freedesktop.systemd1.Unit": {
+			"Job":         {Value: jobProp{0, "/"}, Emit: prop.EmitFalse},
+			"ActiveState": {Value: "inactive", Emit: prop.EmitFalse},
+		},
+		"org.freedesktop.systemd1.Service": {
+			"Result": {Value: "success", Emit: prop.EmitFalse},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.props = props
+	if err := srv.Export(f, systemdPath, systemdIface); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.RequestName(systemdName, dbus.NameFlagDoNotQueue); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewClient(dial(t, addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	r, err := c.RunUnit(ctx, "mcp-tukit-apply.service")
+	if err != nil || !r.OK() || r.ActiveState != "inactive" {
+		t.Fatalf("run: %+v %v", r, err)
+	}
+	if time.Since(start) < 250*time.Millisecond {
+		t.Fatal("RunUnit returned before the unit's job ended")
+	}
+	f.setResult("exit-code")
+	if r, err := c.RunUnit(ctx, "mcp-tukit-apply.service"); err != nil || r.OK() || r.Result != "exit-code" || r.ActiveState != "failed" {
+		t.Fatalf("failed run: %+v %v", r, err)
+	}
+	if _, err := c.RunUnit(ctx, "other.service"); err == nil || !strings.Contains(err.Error(), "there is no unit other.service") {
+		t.Fatalf("unknown unit: %v", err)
+	}
+	// A job that never ends: the context does.
+	short, cancel2 := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel2()
+	f.setResult("success")
+	if _, err := c.RunUnit(short, "mcp-tukit-apply.service"); err == nil || !strings.Contains(err.Error(), "still runs") {
+		t.Fatalf("timeout: %v", err)
 	}
 }

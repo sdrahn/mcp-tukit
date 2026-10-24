@@ -24,6 +24,9 @@ Source99:       %{name}-rpmlintrc
 BuildRequires:  bzip2
 BuildRequires:  golang(API) >= 1.24
 BuildRequires:  make
+# %%selinux_requires adds this when rpmbuild expands it, after OBS chose
+# the build's packages: name it here (as mcp-gateway's spec does).
+BuildRequires:  pkgconfig(systemd)
 # mcp_gateway_backend_template, from the gateway's interface file.
 BuildRequires:  mcp-gateway-selinux
 BuildRequires:  selinux-policy-devel

@@ -1,0 +1,90 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes a GitHub release with the source tarball
+# and vendor.tar.gz (the Go modules), named as the OBS package expects
+# them (packaging/suse), and the tag's section of CHANGELOG.md as notes,
+# as mcp-gateway's release workflow does. A release published in the web
+# interface instead (which creates the tag) gets the same files and keeps
+# what was set there. Binary packages come from OBS.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Before anything is built or published: the spec, the CHANGELOG
+      # and _service must name this tag.
+      - name: Tag matches the files
+        run: tools/check-release "$GITHUB_REF_NAME" HEAD
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # dbus-daemon: the tukit client's tests run against a private bus.
+      - run: sudo apt-get update && sudo apt-get install -y dbus
+      - name: Check
+        run: make check build build-tests
+      - name: Sources
+        run: |
+          set -eu
+          version=${GITHUB_REF_NAME#v}
+          mkdir release
+          git archive --prefix="mcp-server-tukit-$version/" -o "release/mcp-server-tukit-$version.tar.gz" HEAD
+          go mod vendor
+          tar czf release/vendor.tar.gz vendor
+          (cd release && sha256sum -- * > SHA256SUMS)
+      - name: Release notes
+        run: |
+          set -eu
+          # The section of CHANGELOG.md headed "## <tag> ...", up to the next "## ".
+          awk -v tag="$GITHUB_REF_NAME" '
+            /^## / { if (found) exit; if ($2 == tag) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          title="mcp-server-tukit ${GITHUB_REF_NAME}"
+          if release=$(gh release view "$GITHUB_REF_NAME" --json databaseId,name,body 2>/dev/null); then
+            # Made in the web interface: attach the sources, fill in only
+            # an empty title or empty notes.
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber
+            id=$(jq -r .databaseId <<<"$release")
+            name=$(jq -r '.name // ""' <<<"$release")
+            body=$(jq -r '.body // ""' <<<"$release")
+            fields=()
+            [ -n "${name//[[:space:]]/}" ] || fields+=(-f "name=$title")
+            [ -n "${body//[[:space:]]/}" ] || fields+=(-F "body=@notes.md")
+            if [ ${#fields[@]} -gt 0 ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" "${fields[@]}" >/dev/null
+            fi
+          else
+            # A pushed tag: a pre-release for tags like v0.2.0-rc1, else a
+            # full release.
+            prerelease=""
+            case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$GITHUB_REF_NAME" release/* \
+              --title "$title" --notes-file notes.md --verify-tag $prerelease
+          fi
+      # What was published is what was built.
+      - name: Verify the published files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version=${GITHUB_REF_NAME#v}
+          mkdir verify
+          gh release download "$GITHUB_REF_NAME" --dir verify
+          (cd verify && sha256sum -c SHA256SUMS)
+          git archive --prefix="mcp-server-tukit-$version/" HEAD | cmp - <(gzip -dc "verify/mcp-server-tukit-$version.tar.gz")

@@ -24,13 +24,28 @@ osc add *
 osc commit
 ```
 
-The services run in `manual` mode: `tar_scm` fetches `main` from GitHub
-and names the tarball `mcp-server-tukit-0.1.0+git<date>.<hash>.tar.gz`,
-`set_version` puts that version into the spec, and `go_modules` creates
-`vendor.tar.gz`, because OBS builds have no network access. Re-run
-`osc service manualrun` to update, then `osc vc` and commit. The spec,
-`_service` and the rpmlintrc in the OBS package are copies: copy them
-again whenever they change here, before running the services.
+The services run in `manual` mode: `tar_scm` fetches the release tag
+named in `_service` (`v0.1.0`) from GitHub and names the tarball after
+it, `mcp-server-tukit-0.1.0.tar.gz`, `set_version` puts that version
+into the spec, and `go_modules` creates `vendor.tar.gz`, because OBS
+builds have no network access. The spec, `_service` and the rpmlintrc
+in the OBS package are copies: copy them again whenever they change
+here, before running the services, then `osc vc` and commit. Each
+release's GitHub page also has the tarball and `vendor.tar.gz` with
+their SHA-256 sums, to compare with what the services made.
+
+## Releasing
+
+1. On a branch: set `Version:` in the spec, `revision` in `_service`
+   (`vX.Y.Z`) and a section `## vX.Y.Z — <date>` at the top of
+   `CHANGELOG.md` (below `## Unreleased`); `tools/check-release vX.Y.Z`
+   says what still differs. Merge it once CI is green.
+2. Tag the merge on `main` and push the tag:
+   `git tag -a vX.Y.Z -m "mcp-server-tukit X.Y.Z" && git push origin vX.Y.Z`.
+   The Release workflow checks the files again, runs the tests and
+   publishes the GitHub release with the sources and the changelog's
+   section as notes.
+3. Update the OBS package as above.
 
 Build targets: openSUSE Tumbleweed (MicroOS), Leap 16.0 (for Leap Micro
 6.2 and SLES 16), SL Micro 6.2 and SLES 16.1 once mcp-gateway builds

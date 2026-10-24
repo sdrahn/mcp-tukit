@@ -153,6 +153,7 @@ snapshots), `-version`.
 | `dist/gateway/tukit-privileged.yaml` | `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` — server `tukit`, `run_as: root`, `privileged: true`, `selinux_type: mcpsrv_tukit_t`, no network, Landlock (system read-only, no writes); takes effect once linked into `/etc/mcp-gateway/servers.d` (below) |
 | `dist/gateway/roles.yaml` | `/usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml` — roles `tukit-reader` and `tukit-operator` |
 | `dist/systemd/mcp-tukit-reboot.service` | `/usr/lib/systemd/system/mcp-tukit-reboot.service` — the reboot (`transactional-update reboot`) |
+| `dist/systemd/mcp-tukit-apply.service` | `/usr/lib/systemd/system/mcp-tukit-apply.service` — the apply (`transactional-update apply`) |
 | `dist/selinux/mcp_tukit.{te,fc}` | module `mcp_tukit` (package `mcp-server-tukit-selinux`) |
 
 The gateway accepts privileged servers only from the administrator's

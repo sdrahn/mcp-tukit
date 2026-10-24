@@ -11,7 +11,7 @@
 %define modulename mcp_tukit
 
 Name:           mcp-server-tukit
-Version:        0.2.0
+Version:        0.3.0
 Release:        0
 Summary:        MCP server for transactional updates with tukit
 # MIT for mcp-server-tukit; BSD-2-Clause for the vendored godbus.

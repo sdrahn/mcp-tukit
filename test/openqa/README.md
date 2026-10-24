@@ -49,10 +49,12 @@ reboot
   again (nothing to do: no snapshot kept) and a package that does not
   exist (failed: no snapshot kept); and checks that there are no SELinux
   denials. Phase 2, in the new snapshot: the package is there, rollback
-  (and back), deleting snapshots (not the running or the default one),
-  cleanup, `apply` (a reader may not; a second package installed into
-  a new snapshot is in the running system after an approved apply,
-  without a reboot), and `run_in_snapshot` after the administrator enables it
+  (and back), deleting snapshots (not the running or the default one;
+  a spare one made with snapper is deleted after an approval, and
+  deleting it again is no error), cleanup, `apply` (a reader may not;
+  a second package installed into a new snapshot is in the running
+  system after an approved apply, without a reboot), and
+  `run_in_snapshot` after the administrator enables it
   (a failing command leaves no snapshot); again no denials. Between
   them, the reboot phase: a reader may not reboot, a reboot into a
   snapshot that is not the default is refused, the domain may start no

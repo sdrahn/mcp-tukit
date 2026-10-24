@@ -500,12 +500,32 @@ phase2() {
 	if [ "$now" != "$snap" ]; then
 		check "the default snapshot cannot be deleted" tool_error_with "default"
 	fi
+	# A rollback may have made a copy of the snapshot rolled back to
+	# (tukitd 6.2): unused now, it goes.
 	if [ "$def" != "$before" ] && [ "$def" != "$now" ] && has_snapshot "$def"; then
 		tool_approved tuki delete_snapshot "{\"snapshot\":\"$def\"}"
 		check "the unused rollback copy $def is deleted" test "$rc" = 0
 		check "... it is gone" gone "$def"
+	fi
+	# A snapshot neither running nor booted next, made without the server
+	# (snapper, which tukit uses on these systems).
+	local spare=''
+	if command -v snapper >/dev/null; then
+		spare=$(snapper create --print-number --description "mcp-tukit tests: spare" 2>/dev/null)
+	fi
+	if [[ $spare =~ ^[0-9]+$ ]] && has_snapshot "$spare"; then
+		echo "  spare snapshot: $spare"
+		tool rita delete_snapshot "{\"snapshot\":\"$spare\"}"
+		check "rita (reader) may not delete a snapshot" refused
+		check "... it is still there" has_snapshot "$spare"
+		tool_approved tuki delete_snapshot "{\"snapshot\":\"$spare\"}"
+		check "an unused snapshot is deleted after an approval" succeeded_with "Snapshot $spare deleted"
+		check "... it is gone" gone "$spare"
+		check "... the running snapshot is kept" has_snapshot "$snap"
+		tool_approved tuki delete_snapshot "{\"snapshot\":\"$spare\"}"
+		check "deleting it again: nothing to do, no error" succeeded_with "There is no snapshot $spare"
 	else
-		skip "deleting a snapshot (no unused one made by these tests)"
+		skip "deleting a snapshot (snapper could not create a spare one: ${spare:-no snapper})"
 	fi
 	tool_approved tuki cleanup_snapshots '{}'
 	if grep -qF "has no Cleanup" <<<"$out"; then

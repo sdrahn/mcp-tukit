@@ -31,7 +31,7 @@ var rebootConfig = []string{"/usr/etc/transactional-update.conf", "/usr/etc/tran
 	"/etc/transactional-update.conf"}
 
 // version is set at build time (-ldflags "-X main.version=…").
-var version = "0.1.0+dev"
+var version = "0.2.0+dev"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, connect))

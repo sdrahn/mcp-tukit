@@ -4,7 +4,8 @@ policy_module(mcp_tukit, 0.3.0)
 # Every tool is a call to tukitd (org.opensuse.tukit) over the system
 # bus, and tukitd creates, mounts and closes the snapshots and runs
 # zypper in them. tukitd answers only callers with CAP_SYS_ADMIN, so the
-# instance runs privileged (root, all capabilities); this domain is what
+# instance holds that capability (mcp-gateway's sandbox with
+# sandbox.capabilities: [CAP_SYS_ADMIN], as root); this domain is what
 # keeps it to its job: the gateway's backend baseline and the D-Bus chat
 # with tukitd, and systemd starting two units, mcp-tukit-reboot.service
 # and mcp-tukit-apply.service, of types of their own. No capability is allowed: holding one is all

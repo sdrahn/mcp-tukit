@@ -28,7 +28,7 @@ func (e *SystemdError) Error() string {
 	case "org.freedesktop.systemd1.NoSuchUnit":
 		return "systemd: there is no unit " + e.Unit + " (package mcp-server-tukit-gateway installs it)"
 	case "org.freedesktop.DBus.Error.AccessDenied", "org.freedesktop.DBus.Error.InteractiveAuthorizationRequired":
-		return "systemd refused to start " + e.Unit + " (the server must run privileged, and SELinux allows mcpsrv_tukit_t this unit only): " + e.Message
+		return "systemd refused to start " + e.Unit + " (the server needs CAP_SYS_ADMIN, and SELinux allows mcpsrv_tukit_t this unit only): " + e.Message
 	}
 	return "systemd: " + e.Name + ": " + e.Message
 }

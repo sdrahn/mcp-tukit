@@ -36,15 +36,17 @@ An MCP server (stdio) for immutable SUSE systems (openSUSE MicroOS, Leap
 Micro, SL Micro, SLES 16.1 in immutable mode): installs, removes and
 updates packages in new snapshots as transactional-update does, lists
 snapshots, rolls back and cleans up, through tukitd on the system bus.
-It is meant to run behind mcp-gateway, as a privileged server confined
-by its SELinux domain (package mcp-server-tukit-gateway).
+It is meant to run behind mcp-gateway, in the gateway's sandbox with
+CAP_SYS_ADMIN only and its own SELinux domain (package
+mcp-server-tukit-gateway).
 
 %package gateway
 Summary:        mcp-server-tukit behind mcp-gateway
 Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
-Requires:       mcp-gateway
+# sandbox.capabilities.
+Requires:       mcp-gateway >= 1.8.0
 Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
 # The reboot unit runs transactional-update reboot.
 Requires:       transactional-update
@@ -52,14 +54,14 @@ Requires:       transactional-update
 
 %description gateway
 Sets up mcp-server-tukit behind mcp-gateway: the server definition
-(server tukit, a privileged server in the SELinux domain mcpsrv_tukit_t,
-since tukitd answers only callers with CAP_SYS_ADMIN), the roles
-tukit-reader and tukit-operator (every change approved), and for the
-reboot tool the unit mcp-tukit-reboot.service (transactional-update
-reboot) and for the apply tool mcp-tukit-apply.service (transactional-update
-apply), the only units the domain may start. The definition takes effect
+(server tukit, in the gateway's sandbox with CAP_SYS_ADMIN only, which
+tukitd requires of its callers, in the SELinux domain mcpsrv_tukit_t),
+the roles tukit-reader and tukit-operator (every change approved), and
+the units of the reboot and apply tools, mcp-tukit-reboot.service
+(transactional-update reboot) and mcp-tukit-apply.service
+(transactional-update apply), the only units the domain may start. The definition takes effect
 once the administrator links it into /etc/mcp-gateway/servers.d:
-  ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml \
+  ln -s /usr/share/mcp-gateway/profiles/tukit.yaml \
         /etc/mcp-gateway/servers.d/tukit.yaml
 
 %package selinux
@@ -166,6 +168,9 @@ fi
 %dir %{_datadir}/mcp-gateway/policy
 %dir %{_datadir}/mcp-gateway/policy/mcp
 %dir %{_datadir}/mcp-gateway/policy/mcp/profiles
+%{_datadir}/mcp-gateway/profiles/tukit.yaml
+# 0.1's name, a link to tukit.yaml: links administrators made to it keep
+# working, now in the sandbox (removed in 0.3).
 %{_datadir}/mcp-gateway/profiles/tukit-privileged.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/tukit
 %{_unitdir}/mcp-tukit-reboot.service

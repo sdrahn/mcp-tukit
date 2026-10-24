@@ -1,0 +1,44 @@
+# mcp-server-tukit (https://github.com/sdrahn/mcp-tukit) behind
+# mcp-gateway: transactional updates on immutable SUSE systems (openSUSE
+# MicroOS, Leap Micro, SL Micro, SLES 16.1 in immutable mode) through
+# tukitd. Installed as /usr/share/mcp-gateway/profiles/tukit.yaml; enable
+# it by linking it into the administrator's directory, where servers with
+# capabilities are accepted (mcp-gateway user guide, chapter 4, "Servers
+# with a capability"):
+#   ln -s /usr/share/mcp-gateway/profiles/tukit.yaml \
+#         /etc/mcp-gateway/servers.d/tukit.yaml
+#
+# tukitd answers only callers holding CAP_SYS_ADMIN (it registers its
+# D-Bus methods without SD_BUS_VTABLE_UNPRIVILEGED), and its bus policy
+# lets in root only. So the instance runs as root with CAP_SYS_ADMIN and
+# no other capability, in the gateway's sandbox (read-only system, no
+# home directories, no network, the system call filter, no_new_privs),
+# in its SELinux domain mcpsrv_tukit_t, which may talk to tukitd and
+# start the reboot and apply units, and is not granted the capability's
+# use in the kernel. tukitd does the work in the new snapshot. Every call
+# but the reading ones waits for an approval (roles tukit-reader,
+# tukit-operator; every reboot, apply and command approved by itself).
+# Needs mcp-gateway with sandbox.capabilities (1.8).
+version: 1
+name: tukit
+command: ["/usr/bin/mcp-server-tukit"]
+run_as: root
+selinux_type: mcpsrv_tukit_t
+sandbox:
+  # The server reads no home directory.
+  protect_home: "yes"
+  capabilities: [CAP_SYS_ADMIN]
+# No network: zypper runs in tukitd, not in the instance, and the system
+# bus is a unix socket.
+network: false
+# Landlock (a second wall): the system's configuration and programs, read
+# only; the server writes no files.
+landlock: {}
+tool_notes:
+  pkg_install: >-
+    Changes take effect at the next reboot (the tool reboot, which needs
+    an approval of its own). Several changes before a reboot add up
+    (each builds on the default snapshot).
+  update_system: >-
+    Can take many minutes. On SL Micro and Leap Micro use mode update
+    (or patch); dist-upgrade is for MicroOS.

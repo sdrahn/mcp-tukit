@@ -411,7 +411,7 @@ func TestReboot(t *testing.T) {
 
 	// systemd's refusal is the tool's error.
 	f = &fake{list: snaps, unitErr: &tukit.SystemdError{Unit: unit, Name: "org.freedesktop.DBus.Error.AccessDenied", Message: "denied"}}
-	if r := call(t, New(Config{RebootUnit: unit}, f), context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "must run privileged") {
+	if r := call(t, New(Config{RebootUnit: unit}, f), context.Background(), "reboot", `{}`); !isError(r) || !strings.Contains(text(r), "needs CAP_SYS_ADMIN") {
 		t.Fatalf("refused by systemd: %v", r)
 	}
 
@@ -472,7 +472,7 @@ func TestApply(t *testing.T) {
 
 	// systemd refuses.
 	f = &fake{list: snaps, unitErr: &tukit.SystemdError{Unit: unit, Name: "org.freedesktop.DBus.Error.AccessDenied", Message: "denied"}}
-	if r := call(t, New(Config{ApplyUnit: unit}, f), context.Background(), "apply", `{}`); !isError(r) || !strings.Contains(text(r), "must run privileged") {
+	if r := call(t, New(Config{ApplyUnit: unit}, f), context.Background(), "apply", `{}`); !isError(r) || !strings.Contains(text(r), "needs CAP_SYS_ADMIN") {
 		t.Fatalf("refused by systemd: %v", r)
 	}
 

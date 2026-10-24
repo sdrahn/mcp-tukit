@@ -7,8 +7,9 @@
 // as the next default. The server's process needs no mounts, no btrfs
 // ioctls and no files, so its SELinux domain allows it little more than
 // the D-Bus chat with tukitd. tukitd answers only callers with
-// CAP_SYS_ADMIN, though, so the process holds it (a privileged server
-// behind mcp-gateway) without using it.
+// CAP_SYS_ADMIN, though, so the process holds it (behind mcp-gateway, in
+// the sandbox with that capability only, sandbox.capabilities) without
+// using it.
 package tukit
 
 import (
@@ -226,7 +227,7 @@ func (e *Error) Error() string {
 		if strings.HasSuffix(e.Message, "not permitted.") {
 			// sd-bus's own check: tukitd registers its methods without
 			// SD_BUS_VTABLE_UNPRIVILEGED, so a caller needs CAP_SYS_ADMIN.
-			return "tukitd refused access: it answers only callers with CAP_SYS_ADMIN (run the server privileged): " + e.Message
+			return "tukitd refused access: it answers only callers with CAP_SYS_ADMIN (give the server CAP_SYS_ADMIN: sandbox.capabilities in its mcp-gateway definition): " + e.Message
 		}
 		return "tukitd refused access (D-Bus policy): " + e.Message
 	case "org.freedesktop.DBus.Error.UnknownMethod":

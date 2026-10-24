@@ -86,7 +86,7 @@ configuration.
 | Package | Contents |
 |---|---|
 | `mcp-server-tukit` | the server, `/usr/bin/mcp-server-tukit`; requires `tukitd` |
-| `mcp-server-tukit-gateway` | the gateway setup: the privileged definition `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` (the administrator links it into `/etc/mcp-gateway/servers.d`), roles `tukit-reader` and `tukit-operator`, and the units of the reboot and apply tools, `mcp-tukit-reboot.service` (`transactional-update reboot`) and `mcp-tukit-apply.service` (`transactional-update apply`); requires `mcp-gateway`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
+| `mcp-server-tukit-gateway` | the gateway setup: the definition `/usr/share/mcp-gateway/profiles/tukit.yaml` (the sandbox with `CAP_SYS_ADMIN` only; the administrator links it into `/etc/mcp-gateway/servers.d`), roles `tukit-reader` and `tukit-operator`, and the units of the reboot and apply tools, `mcp-tukit-reboot.service` (`transactional-update reboot`) and `mcp-tukit-apply.service` (`transactional-update apply`); requires `mcp-gateway`, `transactional-update`, and pulls in `-selinux` where `selinux-policy-targeted` is installed |
 | `mcp-server-tukit-selinux` | the module `mcp_tukit` (domain `mcpsrv_tukit_t`), installed with the `%selinux_*` macros; requires `mcp-gateway-selinux` |
 | `mcp-server-tukit-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-server-tukit/tests/run-tests.sh --disposable --phase 1|reboot|2 --results DIR`, TAP and JUnit results) and their client; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
 
@@ -95,7 +95,7 @@ On a transactional system:
 ```bash
 transactional-update pkg install mcp-server-tukit-gateway
 reboot
-ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+ln -s /usr/share/mcp-gateway/profiles/tukit.yaml /etc/mcp-gateway/servers.d/tukit.yaml
 systemctl reload mcp-gateway.service
 ```
 
@@ -107,12 +107,13 @@ keeps the wrong label (mcp-gateway user guide, chapter 2).
 
 - **mcp-gateway first:** the package builds against
   `mcp-gateway-selinux` and is useful only with the gateway.
-- **No D-Bus policy or polkit rule:** the server reaches tukitd as a
-  privileged (root) server, which tukitd's own policy allows, and
-  systemd lets it start the reboot unit without polkit; nothing in the
-  package needs the security team's whitelisting. The package installs
-  no active server: the administrator enables the privileged
-  definition, as for mcp-gateway's privileged zypp and snapper servers.
+- **No D-Bus policy or polkit rule:** the server reaches tukitd as
+  root with `CAP_SYS_ADMIN`, which tukitd's own policy allows, and
+  systemd lets it start the reboot and apply units without polkit;
+  nothing in the package needs the security team's whitelisting. The
+  package installs no active server: the administrator enables the
+  definition, which mcp-gateway accepts only from
+  `/etc/mcp-gateway/servers.d` since it names a capability.
 - **Licenses:** MIT; the binary also contains the vendored godbus
   (BSD-2-Clause), stated in `License:`.
 - **openQA:** the test module and its plan are in

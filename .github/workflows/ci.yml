@@ -13,9 +13,7 @@ permissions:
   contents: read
 
 env:
-  # The gateway branch with sandbox.capabilities (sdrahn/mcp-gateway#285)
-  # until it is merged; then main again.
-  GATEWAY_REF: ${{ inputs.gateway_ref || 'claude/sandbox-capabilities' }}
+  GATEWAY_REF: ${{ inputs.gateway_ref || 'main' }}
 
 jobs:
   go:

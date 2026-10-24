@@ -1,2 +1,3 @@
 /usr/bin/mcp-server-tukit		--	gen_context(system_u:object_r:mcpsrv_tukit_exec_t,s0)
 /usr/lib/systemd/system/mcp-tukit-reboot\.service	--	gen_context(system_u:object_r:mcpsrv_tukit_unit_t,s0)
+/usr/lib/systemd/system/mcp-tukit-apply\.service	--	gen_context(system_u:object_r:mcpsrv_tukit_apply_unit_t,s0)

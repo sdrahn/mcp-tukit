@@ -210,6 +210,19 @@ no_tukit_denials() {
 	! audit_since AVC,USER_AVC,SELINUX_ERR | grep -E 'mcpsrv_tukit_|mcpgw_' | grep -v 'permissive=1' | grep -q .
 }
 
+# pick_package [<not this one>]: a package to install, which the
+# repositories have and the system has not.
+pick_package() {
+	local p
+	for p in tree figlet sl hello cowsay; do
+		[ "$p" = "${1:-}" ] && continue
+		rpm -q "$p" >/dev/null 2>&1 && continue
+		zypper -n --no-refresh se -x "$p" >/dev/null 2>&1 || zypper -n se -x "$p" >/dev/null 2>&1 || continue
+		echo "$p"
+		return
+	done
+}
+
 wait_socket() { eventually 60 test -S /run/mcp-gateway/mcp.sock; }
 
 denials_section() {
@@ -298,11 +311,13 @@ EOF
 	check "tuki (operator) sees pkg_install" listed pkg_install
 	check "tuki sees get_status" listed get_status
 	check "tuki sees reboot" listed reboot
+	check "tuki sees apply" listed apply
 	check "run_in_snapshot is not offered (no -allow-commands)" bash -c '! jq -e ".tools | map(.name) | index(\"run_in_snapshot\")" <<<"$1" >/dev/null' _ "$out"
 	call rita --method tools/list
 	check "rita (reader) sees list_snapshots" listed list_snapshots
 	check "rita does not see pkg_install" bash -c '! jq -e ".tools | map(.name) | index(\"pkg_install\")" <<<"$1" >/dev/null' _ "$out"
 	check "rita does not see reboot" bash -c '! jq -e ".tools | map(.name) | index(\"reboot\")" <<<"$1" >/dev/null' _ "$out"
+	check "rita does not see apply" bash -c '! jq -e ".tools | map(.name) | index(\"apply\")" <<<"$1" >/dev/null' _ "$out"
 
 	section "Reading"
 	local active default
@@ -349,14 +364,7 @@ EOF
 	check "... and no snapshot was made" test "$(snapshot_count)" = "$count"
 
 	section "Installing a package"
-	if [ -z "$package" ]; then
-		for p in tree figlet sl hello; do
-			rpm -q "$p" >/dev/null 2>&1 && continue
-			zypper -n --no-refresh se -x "$p" >/dev/null 2>&1 || zypper -n se -x "$p" >/dev/null 2>&1 || continue
-			package=$p
-			break
-		done
-	fi
+	[ -n "$package" ] || package=$(pick_package)
 	[ -n "$package" ] || die "no package to install (none of tree, figlet, sl, hello is available and not installed; use --package)"
 	echo "  package: $package"
 	local before=$default
@@ -411,12 +419,12 @@ phasereboot() {
 	tool_approved tuki reboot "{\"snapshot\":\"$active\"}"
 	check "a reboot into a snapshot that is not the default is refused" tool_error_with "is not the default"
 	check "... and the reboot unit did not start" test "$(unit_state)" = inactive
-	# The domain may start this unit and no other: the policy's only
-	# service rule for it names the unit's own type.
+	# The domain may start this unit and the apply unit, no other: the
+	# policy's only service rules for it name the units' own types.
 	if command -v sesearch >/dev/null; then
 		sesearch -A -s mcpsrv_tukit_t -c service 2>/dev/null | sed 's/^/  /'
-		check "the domain may start the reboot unit only" bash -c \
-			'r=$(sesearch -A -s mcpsrv_tukit_t -c service 2>/dev/null); [ -n "$r" ] && ! grep -v mcpsrv_tukit_unit_t <<<"$r" | grep -q allow'
+		check "the domain may start the reboot and apply units only" bash -c \
+			'r=$(sesearch -A -s mcpsrv_tukit_t -c service 2>/dev/null); [ -n "$r" ] && ! grep -vE "mcpsrv_tukit_(apply_)?unit_t" <<<"$r" | grep -q allow'
 	else
 		skip "the domain's service rules (no sesearch, package setools-console)"
 	fi
@@ -526,6 +534,32 @@ phase2() {
 		check "cleanup_snapshots after an approval" test "$rc" = 0
 	fi
 	check "... the running snapshot is kept" has_snapshot "$snap"
+
+	section "Applying without a reboot"
+	tool rita apply '{}'
+	check "rita (reader) may not apply" refused
+	if [ "$(default_snapshot)" = "$(active_snapshot)" ]; then
+		tool_approved tuki apply '{}'
+		check "apply with nothing pending is refused" tool_error_with "nothing to apply"
+	fi
+	local second
+	second=$(pick_package "$package")
+	if [ -n "$second" ]; then
+		echo "  package: $second"
+		tool_approved tuki pkg_install "{\"packages\":[\"$second\"]}"
+		local applied
+		applied=$(structured snapshot)
+		check "pkg_install $second into snapshot ${applied:-?}" test "$rc" = 0 -a "$(structured status)" = applied
+		check "... not in the running system yet" fails rpm -q "$second"
+		tool_approved tuki apply "{\"snapshot\":\"$(active_snapshot)\"}"
+		check "apply of a snapshot that is not the default is refused" tool_error_with "is not the default"
+		tool_approved tuki apply "{\"snapshot\":\"${applied:-0}\"}"
+		check "apply of snapshot ${applied:-?} after an approval" test "$rc" = 0 -a "$(structured applied)" = true
+		check "... $second is in the running system now, without a reboot" rpm -q "$second"
+		check "... its program runs" bash -c "rpm -ql $second | grep -m1 '^/usr/bin/' | xargs -r test -x"
+	else
+		skip "apply (no second package to install: none of tree, figlet, sl, hello, cowsay is available and not installed)"
+	fi
 
 	section "Commands in a snapshot"
 	# -allow-commands, as an administrator enables it: a definition of the

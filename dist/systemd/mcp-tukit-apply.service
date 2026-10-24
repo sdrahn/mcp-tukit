@@ -1,0 +1,15 @@
+# The apply of mcp-server-tukit's apply tool, behind mcp-gateway: the
+# server's domain (mcpsrv_tukit_t) may start this unit and the reboot
+# unit, no other (SELinux types mcpsrv_tukit_apply_unit_t and
+# mcpsrv_tukit_unit_t), only after the gateway's policy and an approval
+# let the call through. It runs transactional-update apply: the default
+# snapshot's /usr, /etc and /boot are mounted into the running system.
+# The tool waits for the unit's end and reports its result.
+[Unit]
+Description=Apply the default snapshot to the running system (mcp-server-tukit)
+Documentation=https://github.com/sdrahn/mcp-tukit
+RefuseManualStop=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/transactional-update --non-interactive apply

@@ -74,6 +74,8 @@ type Backend interface {
 	// StartUnit asks systemd to start a unit (the reboot unit) and returns
 	// the job's object path. tukitd has no reboot of its own.
 	StartUnit(ctx context.Context, unit string) (string, error)
+	// RunUnit starts a oneshot unit (the apply unit) and waits for its end.
+	RunUnit(ctx context.Context, unit string) (UnitRun, error)
 }
 
 // Quote returns argv as a command line for tukitd, which splits it with

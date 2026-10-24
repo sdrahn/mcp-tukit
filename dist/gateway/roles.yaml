@@ -11,12 +11,18 @@ roles:
       - {server: tukit, tool: get_status}
       - {server: tukit, tool: list_snapshots}
   tukit-operator:
-    description: 'tukit-reader, and with approval: install, remove and update packages in new snapshots, roll back, delete and clean up snapshots, reboot'
+    description: 'tukit-reader, and with approval: install, remove and update packages in new snapshots, roll back, delete and clean up snapshots, apply, reboot'
     permissions:
       - {server: tukit, tool: get_status}
       - {server: tukit, tool: list_snapshots}
       - server: tukit
         tool: rollback
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once]
+      # Changes the running system: an approval for each apply.
+      - server: tukit
+        tool: apply
         require_approval: true
         approval_channel: oob
         approval_scopes: [once]

@@ -25,6 +25,7 @@ type fake struct {
 	block    chan struct{} // Call waits for it, if set
 	rollback string
 	unitErr  error
+	run      tukit.UnitRun
 }
 
 func (f *fake) log(s string) {
@@ -80,6 +81,14 @@ func (f *fake) Delete(ctx context.Context, snapshot string) error {
 	return nil
 }
 func (f *fake) Cleanup(ctx context.Context) error { f.log("cleanup"); return nil }
+func (f *fake) RunUnit(ctx context.Context, unit string) (tukit.UnitRun, error) {
+	f.log("run " + unit)
+	if f.unitErr != nil {
+		return tukit.UnitRun{}, f.unitErr
+	}
+	return f.run, nil
+}
+
 func (f *fake) StartUnit(ctx context.Context, unit string) (string, error) {
 	f.log("start " + unit)
 	if f.unitErr != nil {
@@ -421,5 +430,66 @@ func TestReboot(t *testing.T) {
 	// Without a unit, no tool.
 	if New(Config{}, &fake{}).tool("reboot") != nil {
 		t.Fatal("reboot offered without a unit")
+	}
+}
+
+func TestApply(t *testing.T) {
+	const unit = "mcp-tukit-apply.service"
+	ok := tukit.UnitRun{ActiveState: "inactive", Result: "success"}
+	f := &fake{list: snaps, run: ok}
+	s := New(Config{ApplyUnit: unit}, f)
+	for _, tc := range []struct{ args, refusal string }{
+		{`{"snapshot":"9"}`, "not the default"},
+		{`{"snapshot":"x"}`, "must be a snapshot number"},
+		{`{"force":true}`, "unknown field"},
+	} {
+		if r := call(t, s, context.Background(), "apply", tc.args); !isError(r) || !strings.Contains(text(r), tc.refusal) {
+			t.Errorf("%s: %v", tc.args, r)
+		}
+	}
+	if len(f.logged()) != 0 {
+		t.Fatalf("refused calls ran the unit: %v", f.logged())
+	}
+	r := call(t, s, context.Background(), "apply", `{"snapshot":"10"}`)
+	st, _ := r["structuredContent"].(map[string]any)
+	if isError(r) || st["applied"] != true || st["snapshot"] != "10" || !strings.Contains(text(r), "next reboot") {
+		t.Fatalf("apply: %v", r)
+	}
+	equal(t, f.logged(), []string{"run " + unit})
+
+	// Nothing to apply.
+	f = &fake{list: []map[string]string{{"number": "9", "active": "yes", "default": "yes"}}, run: ok}
+	if r := call(t, New(Config{ApplyUnit: unit}, f), context.Background(), "apply", `{}`); !isError(r) || !strings.Contains(text(r), "nothing to apply") {
+		t.Fatalf("nothing pending: %v", r)
+	}
+
+	// transactional-update apply failed.
+	f = &fake{list: snaps, run: tukit.UnitRun{ActiveState: "failed", Result: "exit-code"}}
+	r = call(t, New(Config{ApplyUnit: unit}, f), context.Background(), "apply", `{}`)
+	if !isError(r) || r["structuredContent"].(map[string]any)["applied"] != false || !strings.Contains(text(r), "journalctl -u "+unit) {
+		t.Fatalf("failed: %v", r)
+	}
+
+	// systemd refuses.
+	f = &fake{list: snaps, unitErr: &tukit.SystemdError{Unit: unit, Name: "org.freedesktop.DBus.Error.AccessDenied", Message: "denied"}}
+	if r := call(t, New(Config{ApplyUnit: unit}, f), context.Background(), "apply", `{}`); !isError(r) || !strings.Contains(text(r), "must run privileged") {
+		t.Fatalf("refused by systemd: %v", r)
+	}
+
+	// Not while a change runs.
+	f = &fake{list: snaps, block: make(chan struct{}), run: ok}
+	s = New(Config{ApplyUnit: unit}, f)
+	done := make(chan struct{})
+	go func() { defer close(done); call(t, s, context.Background(), "pkg_install", `{"packages":["vim"]}`) }()
+	waitFor(t, func() bool { return len(f.logged()) == 2 })
+	if r := call(t, s, context.Background(), "apply", `{}`); !isError(r) || !strings.Contains(text(r), "change of this server is running") {
+		t.Fatalf("during a change: %v", r)
+	}
+	close(f.block)
+	<-done
+
+	// Without a unit, no tool.
+	if New(Config{}, &fake{}).tool("apply") != nil {
+		t.Fatal("apply offered without a unit")
 	}
 }

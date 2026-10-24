@@ -52,6 +52,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, connect func(
 	timeout := fs.Duration("timeout", 2*time.Hour, "how long a change (a package installation, an update) may take")
 	zypper := fs.String("zypper", "/usr/bin/zypper", "zypper's path in the snapshots")
 	rebootUnit := fs.String("reboot-unit", "mcp-tukit-reboot.service", "the systemd unit the reboot tool starts (it runs transactional-update reboot); empty: no reboot tool")
+	applyUnit := fs.String("apply-unit", "mcp-tukit-apply.service", "the systemd unit the apply tool runs (it runs transactional-update apply); empty: no apply tool")
 	about := fs.String("instructions", "", "what the client's model should know about this host first (opens the server's instructions)")
 	check := fs.Bool("check", false, "connect to tukitd, list the snapshots and exit")
 	showVersion := fs.Bool("version", false, "print the version and exit")
@@ -77,9 +78,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, connect func(
 		_, _ = fmt.Fprintf(stderr, "%s: -base %q: must be default, active or a snapshot number\n", server.Name, *base)
 		return 2
 	}
-	if *rebootUnit != "" && (!strings.HasSuffix(*rebootUnit, ".service") || strings.ContainsAny(*rebootUnit, "/ ")) {
-		_, _ = fmt.Fprintf(stderr, "%s: -reboot-unit %q: must name a .service unit\n", server.Name, *rebootUnit)
-		return 2
+	for flag, unit := range map[string]string{"-reboot-unit": *rebootUnit, "-apply-unit": *applyUnit} {
+		if unit != "" && (!strings.HasSuffix(unit, ".service") || strings.ContainsAny(unit, "/ ")) {
+			_, _ = fmt.Fprintf(stderr, "%s: %s %q: must name a .service unit\n", server.Name, flag, unit)
+			return 2
+		}
 	}
 	if *timeout < time.Minute {
 		_, _ = fmt.Fprintf(stderr, "%s: -timeout %s: at least 1m\n", server.Name, *timeout)
@@ -105,11 +108,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, connect func(
 		return 0
 	}
 	s := server.New(server.Config{Version: version, Zypper: *zypper, DefaultBase: *base, Timeout: *timeout,
-		AllowCommands: *allowCommands, RebootUnit: *rebootUnit, RebootConfig: rebootConfig, About: *about, Log: stderr}, tk)
+		AllowCommands: *allowCommands, RebootUnit: *rebootUnit, ApplyUnit: *applyUnit, RebootConfig: rebootConfig, About: *about, Log: stderr}, tk)
 	// A log line on stderr, which goes to the journal.
-	_, _ = fmt.Fprintf(stderr, "%s %s: tukitd on the system bus; new snapshots from %s; run_in_snapshot %s; reboot %s\n",
+	_, _ = fmt.Fprintf(stderr, "%s %s: tukitd on the system bus; new snapshots from %s; run_in_snapshot %s; reboot %s; apply %s\n",
 		server.Name, version, *base, map[bool]string{true: "offered", false: "not offered"}[*allowCommands],
-		map[bool]string{true: "through " + *rebootUnit, false: "not offered"}[*rebootUnit != ""])
+		map[bool]string{true: "through " + *rebootUnit, false: "not offered"}[*rebootUnit != ""],
+		map[bool]string{true: "through " + *applyUnit, false: "not offered"}[*applyUnit != ""])
 	// Requests carry only arguments, which are short.
 	if err := mcp.New(s.Handle, stdout).Serve(stdin, 1<<20); err != nil {
 		_, _ = fmt.Fprintln(stderr, server.Name+":", err)

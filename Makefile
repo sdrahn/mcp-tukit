@@ -63,6 +63,7 @@ install: build
 	install -Dm0644 dist/gateway/tukit-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/tukit-privileged.yaml
 	install -Dm0644 dist/gateway/roles.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
 	install -Dm0644 dist/systemd/mcp-tukit-reboot.service $(DESTDIR)$(UNITDIR)/mcp-tukit-reboot.service
+	install -Dm0644 dist/systemd/mcp-tukit-apply.service $(DESTDIR)$(UNITDIR)/mcp-tukit-apply.service
 
 install-tests: build-tests
 	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-server-tukit/tests/run-tests.sh

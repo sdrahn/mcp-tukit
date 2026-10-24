@@ -56,7 +56,8 @@ Sets up mcp-server-tukit behind mcp-gateway: the server definition
 since tukitd answers only callers with CAP_SYS_ADMIN), the roles
 tukit-reader and tukit-operator (every change approved), and for the
 reboot tool the unit mcp-tukit-reboot.service (transactional-update
-reboot), the only unit the domain may start. The definition takes effect
+reboot) and for the apply tool mcp-tukit-apply.service (transactional-update
+apply), the only units the domain may start. The definition takes effect
 once the administrator links it into /etc/mcp-gateway/servers.d:
   ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml \
         /etc/mcp-gateway/servers.d/tukit.yaml
@@ -126,17 +127,17 @@ export GOFLAGS="-mod=vendor"
 go test ./...
 
 %pre gateway
-%service_add_pre mcp-tukit-reboot.service
+%service_add_pre mcp-tukit-reboot.service mcp-tukit-apply.service
 
 %post gateway
-%service_add_post mcp-tukit-reboot.service
+%service_add_post mcp-tukit-reboot.service mcp-tukit-apply.service
 
 %preun gateway
-%service_del_preun mcp-tukit-reboot.service
+%service_del_preun mcp-tukit-reboot.service mcp-tukit-apply.service
 
 %postun gateway
-# Not restarted on update: it would reboot the system.
-%service_del_postun_without_restart mcp-tukit-reboot.service
+# Not restarted on update: they would reboot or apply.
+%service_del_postun_without_restart mcp-tukit-reboot.service mcp-tukit-apply.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -168,6 +169,7 @@ fi
 %{_datadir}/mcp-gateway/profiles/tukit-privileged.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/tukit
 %{_unitdir}/mcp-tukit-reboot.service
+%{_unitdir}/mcp-tukit-apply.service
 
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}

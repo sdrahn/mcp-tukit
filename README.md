@@ -14,9 +14,34 @@ in Go and meant to run behind
 sandbox with one capability and an SELinux domain of its own, with
 SELinux enforcing.
 
-Status: first version (0.1). Tested against a fake tukitd on a private
-D-Bus, with the gateway's `inspect`, and by the functional tests in CI's
-MicroOS VM (openQA planned).
+## Status
+
+The current release is **0.2.0** (2026-10-24), from the branch
+`release-0.2`. `main` is 0.3 in development. Releases, with their source
+tarballs and notes, are on the
+[releases page](https://github.com/sdrahn/mcp-tukit/releases), and the
+changes are in [CHANGELOG.md](CHANGELOG.md). Packages come from OBS
+([packaging/suse](packaging/suse/README.md)).
+
+| Version | Branch | mcp-gateway | The server runs |
+|---|---|---|---|
+| 0.2.x | `release-0.2` | 1.8.0 or later | in the gateway's sandbox with `CAP_SYS_ADMIN` only (`sandbox.capabilities`) |
+| 0.1.x | `release-0.1` | 1.7.0 or later | as a privileged server (`privileged: true`) |
+
+How it is tested:
+
+- **Unit tests** run against a fake tukitd and a fake systemd on a
+  private D-Bus.
+- **CI** builds the packages as OBS does in openSUSE Tumbleweed and Leap
+  16.0 containers, with rpmlint and an installation test.
+- **The functional tests** run in a MicroOS VM with SELinux enforcing
+  and tukitd 6.1.3. They install a package into a new snapshot, reboot
+  with the server's own tool, apply a snapshot without a reboot, roll
+  back and delete snapshots, and check that there are no SELinux
+  denials.
+
+Leap Micro, SL Micro and SLES 16.1 are not tested yet: the openQA
+module for them is in `test/openqa`, not yet scheduled.
 
 ## How it works
 
@@ -258,9 +283,9 @@ versions up to 2025-11-25, cancellation, progress).
 
 ## Not yet
 
-- Running the functional tests: the CI VM job (MicroOS) and
-  openQA on SL Micro 6.x and SLES 16.1 (immutable); and a profiling run
-  (`mcp-gateway-admin profile`) to confirm the domain needs nothing more.
+- The functional tests in openQA on Leap Micro, SL Micro 6.x and SLES
+  16.1 (immutable); and a profiling run (`mcp-gateway-admin profile`)
+  to confirm the domain needs nothing more.
 - tukitd before 6.0 has no `…WithOpts` methods: the server falls back to
   `Open` and the snapshot gets no description.
 - What `transactional-update` does beyond tukit is not done: bootloader

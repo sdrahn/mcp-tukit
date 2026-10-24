@@ -5,6 +5,12 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+## v0.2.0 — 2026-10-24
+
+The server runs in mcp-gateway's sandbox, with the one capability
+tukitd requires, instead of as a privileged server. Needs mcp-gateway
+1.8.
+
 - **The sandbox instead of a privileged server.** The gateway definition
   (now `/usr/share/mcp-gateway/profiles/tukit.yaml`) runs the server in
   mcp-gateway's sandbox with `CAP_SYS_ADMIN` and no other capability
@@ -15,6 +21,11 @@ All notable changes to mcp-server-tukit. Versions follow
   link to `tukit.yaml`, so a link made to it keeps working and gets the
   sandbox; it goes away in 0.3, so link the new name:
   `ln -sf /usr/share/mcp-gateway/profiles/tukit.yaml /etc/mcp-gateway/servers.d/tukit.yaml`.
+- **Packaging:** the spec names `BuildRequires: pkgconfig(systemd)`,
+  which `%selinux_requires` adds only when rpmbuild expands it, too late
+  for OBS (the 16.1 build failed without it). Releases come from the
+  branches `release-X.Y`; `tools/check-release` and the packaging
+  README say how.
 
 ## v0.1.0 — 2026-10-24
 

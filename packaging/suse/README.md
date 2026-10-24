@@ -24,28 +24,56 @@ osc add *
 osc commit
 ```
 
-The services run in `manual` mode: `tar_scm` fetches the release tag
-named in `_service` (`v0.1.0`) from GitHub and names the tarball after
-it, `mcp-server-tukit-0.1.0.tar.gz`, `set_version` puts that version
-into the spec, and `go_modules` creates `vendor.tar.gz`, because OBS
-builds have no network access. The spec, `_service` and the rpmlintrc
-in the OBS package are copies: copy them again whenever they change
-here, before running the services, then `osc vc` and commit. Each
-release's GitHub page also has the tarball and `vendor.tar.gz` with
-their SHA-256 sums, to compare with what the services made.
+The services run in `manual` mode: on a release branch, `tar_scm`
+fetches that branch (`release-0.1`) and takes the version from its
+latest tag (`@PARENT_TAG@` without the leading `v`), so the tarball is
+`mcp-server-tukit-0.1.Z.tar.gz`; `set_version` puts that version into
+the spec, and `go_modules` creates `vendor.tar.gz`, because OBS builds
+have no network access.
 
-## Releasing
+### Releases
 
-1. On a branch: set `Version:` in the spec, `revision` in `_service`
-   (`vX.Y.Z`) and a section `## vX.Y.Z — <date>` at the top of
-   `CHANGELOG.md` (below `## Unreleased`); `tools/check-release vX.Y.Z`
-   says what still differs. Merge it once CI is green.
-2. Tag the merge on `main` and push the tag:
-   `git tag -a vX.Y.Z -m "mcp-server-tukit X.Y.Z" && git push origin vX.Y.Z`.
-   The Release workflow checks the files again, runs the tests and
-   publishes the GitHub release with the sources and the changelog's
-   section as notes.
-3. Update the OBS package as above.
+Each release has a branch `release-X.Y` and tags `vX.Y.Z`, as
+mcp-gateway's; tags are made on the release branch, never on `main`.
+Pushing a tag publishes a GitHub release with
+`mcp-server-tukit-X.Y.Z.tar.gz`, `vendor.tar.gz` and `SHA256SUMS`
+(`.github/workflows/release.yml`). On a release branch, `_service`
+fetches that branch and takes the version from its latest tag, so the
+package version is `X.Y.Z`.
+
+1. **A new minor release X.Y:** create `release-X.Y` from `main`. On the
+   branch, `_service` builds from `release-X.Y` with `@PARENT_TAG@`, the
+   spec says `Version: X.Y.0`, and `CHANGELOG.md` has the section
+   `## vX.Y.0 — <date>` at the top (below `## Unreleased`). On `main`,
+   `_service` and the spec move to X.(Y+1) (`X.(Y+1).0+git%cd.%h`).
+2. **A fix release X.Y.Z:** merge the fix into `release-X.Y` (and
+   `main`), set `Version: X.Y.Z` and add its CHANGELOG.md section on the
+   branch.
+3. **Check, tag, push:** `tools/check-release vX.Y.Z` on the branch says
+   what still differs from the release (the spec's `Version`, the first
+   CHANGELOG.md section, `_service`). Then tag the branch's head and push
+   the tag:
+   ```bash
+   git fetch origin release-X.Y
+   git tag -a vX.Y.Z -m "mcp-server-tukit X.Y.Z" origin/release-X.Y
+   git push origin vX.Y.Z
+   ```
+   The Release workflow runs the same check, refuses a tag that fails
+   it, runs the tests, publishes the release with the tag's CHANGELOG.md
+   section as notes, then downloads the files again and checks them
+   against `SHA256SUMS` and `git archive` of the tag.
+4. **OBS:** take the spec, `_service` and the rpmlintrc of the release's
+   tag, run the services, and commit with the release's CHANGELOG.md
+   section:
+   ```bash
+   tag=vX.Y.Z
+   for f in mcp-server-tukit.spec _service mcp-server-tukit-rpmlintrc; do
+     curl -sSfL -o "$f" "https://raw.githubusercontent.com/sdrahn/mcp-tukit/$tag/packaging/suse/$f"
+   done
+   osc service manualrun
+   osc vc -m "Update to ${tag#v}"
+   osc commit
+   ```
 
 Build targets: openSUSE Tumbleweed (MicroOS), Leap 16.0 (for Leap Micro
 6.2 and SLES 16), SL Micro 6.2 and SLES 16.1 once mcp-gateway builds

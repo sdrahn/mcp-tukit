@@ -9,8 +9,8 @@
 # exists, else HEAD):
 #   - packaging/suse/mcp-server-tukit.spec has Version: X.Y.Z;
 #   - the first release heading of CHANGELOG.md is "## vX.Y.Z — <date>";
-#   - packaging/suse/_service builds the tag vX.Y.Z with the tag's
-#     version.
+#   - packaging/suse/_service builds from release-X.Y with the version
+#     of its latest tag (a release branch, not main).
 # Each mismatch is printed with the file to fix; the exit status is 1 if
 # there is one.
 set -eu
@@ -22,6 +22,7 @@ v[0-9]*.[0-9]*.[0-9]*) ;;
 esac
 version=${tag#v}
 base=${version%%-*} # v1.2.0-rc1: the files name 1.2.0
+series=$(echo "$base" | cut -d. -f1,2)
 if [ $# -ge 2 ]; then
 	rev=$2
 elif git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
@@ -47,8 +48,8 @@ case "$heading" in
 esac
 
 service=$(git show "$rev:packaging/suse/_service")
-echo "$service" | grep -q "<param name=\"revision\">$tag</param>" ||
-	fail "packaging/suse/_service does not build the tag $tag (revision)"
+echo "$service" | grep -q "<param name=\"revision\">release-$series</param>" ||
+	fail "packaging/suse/_service does not build from release-$series"
 echo "$service" | grep -q '<param name="versionformat">@PARENT_TAG@</param>' ||
 	fail "packaging/suse/_service does not take the version from the tag (versionformat @PARENT_TAG@)"
 

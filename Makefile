@@ -1,7 +1,7 @@
 # mcp-server-tukit: an MCP server for transactional updates (tukit),
 # run behind mcp-gateway.
 
-VERSION     ?= $(or $(shell git describe --tags --dirty 2>/dev/null | sed 's/^v//'),0.2.0+dev)
+VERSION     ?= $(or $(shell git describe --tags --dirty 2>/dev/null | sed 's/^v//'),0.3.0+dev)
 GO          ?= go
 # Go picks vendor/ when it is there (OBS builds); GOFLAGS from the
 # environment applies as well.

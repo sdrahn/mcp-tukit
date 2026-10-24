@@ -40,10 +40,11 @@ reboot
 
 - **Three phases; the reboot is the server's own.** Phase 1 sets up users
   (`tuki`, operator; `rita`, reader; `ned`, no role), starts the
-  links the privileged definition into `/etc/mcp-gateway/servers.d`
-  (the package alone activates nothing), starts the gateway, checks the
-  instance (domain `mcpsrv_tukit_t`, root with `CAP_SYS_ADMIN`, which
-  tukitd requires, no MCS pair), that a user cannot call tukitd, the roles
+  links the definition into `/etc/mcp-gateway/servers.d` (the package
+  alone activates nothing), starts the gateway, checks the instance
+  (domain `mcpsrv_tukit_t` with its MCS pair, root in the gateway's
+  sandbox with `CAP_SYS_ADMIN` and no other capability, which tukitd
+  requires, `no_new_privs`), that a user cannot call tukitd, the roles
   (readers read, nobody else does anything) and the approvals, then
   installs a package into a new snapshot after an approval; installs it
   again (nothing to do: no snapshot kept) and a package that does not

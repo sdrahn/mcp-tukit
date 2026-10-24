@@ -1,8 +1,9 @@
 #!/bin/bash
 # Functional tests of mcp-server-tukit behind mcp-gateway on a real
 # transactional system (openSUSE MicroOS, Leap Micro, SL Micro, SLES 16.1
-# in immutable mode) with SELinux enforcing: the privileged instance in
-# its SELinux domain, the roles and approvals, and
+# in immutable mode) with SELinux enforcing: the instance in the
+# gateway's sandbox with CAP_SYS_ADMIN only and in its SELinux domain,
+# the roles and approvals, and
 # real changes through tukitd: a package installed into a new snapshot,
 # active after a reboot, a rollback, deleting and cleaning up snapshots,
 # and no SELinux denials. Package mcp-server-tukit-tests installs it as
@@ -113,11 +114,20 @@ proc_has_type() { has_type "$(label "$1")" "$2"; }
 file_has_type() { has_type "$(file_label "$1")" "$2"; }
 categories() { sed -n 's/.*:s0:\(c[0-9]*,c[0-9]*\)$/\1/p' <<<"$1"; }
 # has_sys_admin <pid>: the process holds CAP_SYS_ADMIN (bit 21), which
-# tukitd requires of its callers.
+# tukitd requires of its callers. cap_set <pid> <set>: the process's
+# capability set (CapEff, CapBnd, ...) in hex.
 has_sys_admin() {
 	local caps
 	caps=$(sed -n 's/^CapEff:[[:space:]]*//p' "/proc/$1/status" 2>/dev/null)
 	[ -n "$caps" ] && (((0x$caps >> 21) & 1))
+}
+cap_set() { sed -n "s/^$2:[[:space:]]*//p" "/proc/$1/status" 2>/dev/null; }
+no_new_privs() { grep -q '^NoNewPrivs:[[:space:]]*1' "/proc/$1/status" 2>/dev/null; }
+# lists_capability: the gateway lists the server with CAP_SYS_ADMIN and
+# not as privileged.
+lists_capability() {
+	control tuki GET /v1/servers |
+		jq -e '.[] | select(.name == "tukit") | .capabilities == ["CAP_SYS_ADMIN"] and (.privileged | not)' >/dev/null
 }
 
 # The snapshots as tukit itself lists them, independent of the server:
@@ -267,10 +277,11 @@ phase1() {
 	# program was installed before its module, chapter 2 of the gateway's
 	# user guide).
 	check "/usr/bin/mcp-server-tukit is labeled mcpsrv_tukit_exec_t" file_has_type /usr/bin/mcp-server-tukit mcpsrv_tukit_exec_t
-	local def=/usr/share/mcp-gateway/profiles/tukit-privileged.yaml
-	check "the privileged definition is installed" test -f "$def"
-	# A package never makes a server privileged by itself (mcp-gateway
-	# accepts privileged definitions only from /etc).
+	local def=/usr/share/mcp-gateway/profiles/tukit.yaml
+	check "the definition is installed" test -f "$def"
+	check "0.1's name links to it" test "$(readlink /usr/share/mcp-gateway/profiles/tukit-privileged.yaml)" = tukit.yaml
+	# A package never gives a server a capability by itself (mcp-gateway
+	# accepts definitions with sandbox.capabilities only from /etc).
 	check "no definition is active from the package alone" test ! -e /usr/share/mcp-gateway/servers.d/tukit.yaml
 	check "the roles are installed" test -f /usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
 	local unit=/usr/lib/systemd/system/mcp-tukit-reboot.service
@@ -336,9 +347,14 @@ EOF
 	echo "  instance ${pid:-none}: $ctx, user $(proc_user "${pid:-0}")"
 	check "an instance runs" test -n "$pid"
 	check "it runs in mcpsrv_tukit_t" proc_has_type "${pid:-0}" mcpsrv_tukit_t
-	check "it runs as root (privileged)" test "$(proc_user "${pid:-0}")" = root
+	grep -E '^(NoNewPrivs|Cap(Eff|Bnd|Amb)):' "/proc/${pid:-0}/status" 2>/dev/null | sed 's/^/  /'
+	check "it runs as root (tukitd's bus policy lets in root only)" test "$(proc_user "${pid:-0}")" = root
 	check "it holds CAP_SYS_ADMIN, which tukitd requires" has_sys_admin "${pid:-0}"
-	check "it has no MCS pair (privileged: what tukitd makes stays readable)" test -z "$(categories "$ctx")"
+	check "... and no other capability" test "$(cap_set "${pid:-0}" CapEff)" = 0000000000200000
+	check "... nor can it gain one (bounding set)" test "$(cap_set "${pid:-0}" CapBnd)" = 0000000000200000
+	check "it has no_new_privs (the gateway's sandbox)" no_new_privs "${pid:-0}"
+	check "it has its MCS pair (not privileged)" test -n "$(categories "$ctx")"
+	check "the gateway lists it with CAP_SYS_ADMIN, not as privileged" lists_capability
 	check "the gateway's doctor finds nothing failing for tukit" \
 		bash -c '! mcp-gateway-admin doctor --server tukit 2>&1 | tee /dev/stderr | grep -qE "^fail"'
 
@@ -564,7 +580,7 @@ phase2() {
 	section "Commands in a snapshot"
 	# -allow-commands, as an administrator enables it: a definition of the
 	# same name in /etc replaces the package's.
-	local def=/usr/share/mcp-gateway/profiles/tukit-privileged.yaml
+	local def=/usr/share/mcp-gateway/profiles/tukit.yaml
 	rm -f /etc/mcp-gateway/servers.d/tukit.yaml
 	sed 's|^command: .*|command: ["/usr/bin/mcp-server-tukit", "-allow-commands"]|' \
 		"$def" >/etc/mcp-gateway/servers.d/tukit.yaml

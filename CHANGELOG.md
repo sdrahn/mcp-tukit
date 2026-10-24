@@ -5,6 +5,17 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+- **The sandbox instead of a privileged server.** The gateway definition
+  (now `/usr/share/mcp-gateway/profiles/tukit.yaml`) runs the server in
+  mcp-gateway's sandbox with `CAP_SYS_ADMIN` and no other capability
+  (`sandbox.capabilities`), instead of `privileged: true`: a read-only
+  system, no home directories, `no_new_privs`, the system call filter
+  and an MCS pair, still as root, which tukitd's bus policy requires.
+  Needs mcp-gateway 1.8. `tukit-privileged.yaml`, 0.1's name, is now a
+  link to `tukit.yaml`, so a link made to it keeps working and gets the
+  sandbox; it goes away in 0.3, so link the new name:
+  `ln -sf /usr/share/mcp-gateway/profiles/tukit.yaml /etc/mcp-gateway/servers.d/tukit.yaml`.
+
 ## v0.1.0 — 2026-10-24
 
 The first release: an MCP server (stdio) for immutable SUSE systems

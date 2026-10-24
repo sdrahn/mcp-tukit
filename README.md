@@ -10,8 +10,9 @@ It installs, removes and updates packages in new snapshots of the root
 file system, shows the snapshots and whether a reboot is pending, rolls
 back, and cleans up, the way `transactional-update` does. It is written
 in Go and meant to run behind
-[mcp-gateway](https://github.com/sdrahn/mcp-gateway), as a privileged
-server confined by an SELinux domain of its own, with SELinux enforcing.
+[mcp-gateway](https://github.com/sdrahn/mcp-gateway), in the gateway's
+sandbox with one capability and an SELinux domain of its own, with
+SELinux enforcing.
 
 Status: first version (0.1). Tested against a fake tukitd on a private
 D-Bus, with the gateway's `inspect`, and by the functional tests in CI's
@@ -22,7 +23,7 @@ MicroOS VM (openQA planned).
 ```
 agent ──MCP──▶ mcp-gateway ──stdio──▶ mcp-server-tukit ──D-Bus──▶ tukitd ──▶ snapshot (zypper, chrooted)
                policy, approvals       mcpsrv_tukit_t                unconfined_service_t
-                                       root, privileged              (root)
+                                       root, CAP_SYS_ADMIN only      (root)
 ```
 
 The server does **none of the privileged work itself**. Every tool is a
@@ -33,15 +34,16 @@ and no network: its SELinux domain allows the gateway's backend
 baseline, the D-Bus chat with tukitd, and starting the reboot and apply
 units, and nothing else.
 
-It still runs as a **privileged** server (root, all capabilities, no
-MCS pair): tukitd registers its D-Bus methods without
-`SD_BUS_VTABLE_UNPRIVILEGED`, so sd-bus answers only callers holding
-`CAP_SYS_ADMIN`, whatever the bus policy says. The capability is what
-tukitd checks; the server never uses it, and the domain does not allow
-it to. Landlock keeps the instance from writing anywhere as a second
-wall. A sandboxed instance with only `CAP_SYS_ADMIN` would be tighter;
-that needs an option in mcp-gateway (planned), or tukitd marking its
-methods unprivileged and leaving access to the bus policy.
+The instance holds **one capability**, `CAP_SYS_ADMIN`, and runs as
+root, in the gateway's sandbox otherwise (`sandbox.capabilities`, from
+mcp-gateway 1.8): a read-only system, no home directories, no network,
+the gateway's system call filter, `no_new_privs`, its MCS pair. tukitd
+registers its D-Bus methods without `SD_BUS_VTABLE_UNPRIVILEGED`, so
+sd-bus answers only callers holding `CAP_SYS_ADMIN`, whatever the bus
+policy says; and tukitd's bus policy lets in root only. The capability
+is what tukitd checks; the server never uses it, and its SELinux domain
+does not allow it to. Landlock keeps the instance from writing anywhere
+as a second wall.
 
 A change goes as `transactional-update` does it:
 
@@ -150,18 +152,18 @@ snapshots), `-version`.
 
 | File | Installed as |
 |---|---|
-| `dist/gateway/tukit-privileged.yaml` | `/usr/share/mcp-gateway/profiles/tukit-privileged.yaml` — server `tukit`, `run_as: root`, `privileged: true`, `selinux_type: mcpsrv_tukit_t`, no network, Landlock (system read-only, no writes); takes effect once linked into `/etc/mcp-gateway/servers.d` (below) |
+| `dist/gateway/tukit.yaml` | `/usr/share/mcp-gateway/profiles/tukit.yaml` — server `tukit`, `run_as: root`, `sandbox.capabilities: [CAP_SYS_ADMIN]`, `selinux_type: mcpsrv_tukit_t`, no network, no home directories, Landlock (system read-only, no writes); takes effect once linked into `/etc/mcp-gateway/servers.d` (below) |
 | `dist/gateway/roles.yaml` | `/usr/share/mcp-gateway/policy/mcp/profiles/tukit/data.yaml` — roles `tukit-reader` and `tukit-operator` |
 | `dist/systemd/mcp-tukit-reboot.service` | `/usr/lib/systemd/system/mcp-tukit-reboot.service` — the reboot (`transactional-update reboot`) |
 | `dist/systemd/mcp-tukit-apply.service` | `/usr/lib/systemd/system/mcp-tukit-apply.service` — the apply (`transactional-update apply`) |
 | `dist/selinux/mcp_tukit.{te,fc}` | module `mcp_tukit` (package `mcp-server-tukit-selinux`) |
 
-The gateway accepts privileged servers only from the administrator's
-directory, so installing the package never creates one. Enable it as
-for the privileged zypp and snapper servers:
+The gateway accepts servers with capabilities, as privileged ones, only
+from the administrator's directory, so installing the package never
+creates one. Enable it by linking the definition there:
 
 ```bash
-ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+ln -s /usr/share/mcp-gateway/profiles/tukit.yaml /etc/mcp-gateway/servers.d/tukit.yaml
 systemctl reload mcp-gateway.service
 ```
 
@@ -176,14 +178,16 @@ The three layers of the gateway's chapter 13 apply:
   `run_in_snapshot` need an approval of their own each time (scope
   `once`).
 - **tukitd** answers callers with `CAP_SYS_ADMIN` only, and does the
-  work as root. The gateway's privileged server is the only such caller
-  it gets through MCP; whoever can call it can run commands as root in
-  new snapshots, so the gateway's roles and approvals are what guard
-  that (a privileged server's calls are allowed without approval only
-  by permissions naming server and tool without wildcards, and every
-  decision on it goes to the kernel audit log).
-- **SELinux** keeps the privileged instance to the D-Bus chat with
-  tukitd and starting the reboot and apply units.
+  work as root. The gateway's instance is the only such caller it gets
+  through MCP; whoever can call it can run commands as root in new
+  snapshots, so the gateway's roles and approvals are what guard that.
+  The gateway treats a server with capabilities as a privileged one
+  here: its calls are allowed without approval only by permissions
+  naming server and tool without wildcards, and every decision on it
+  goes to the kernel audit log.
+- **SELinux** keeps the instance to the D-Bus chat with tukitd and
+  starting the reboot and apply units, and does not let it use
+  `CAP_SYS_ADMIN` in the kernel.
 
 Bind users or groups to the roles in the gateway's role data:
 
@@ -265,9 +269,9 @@ versions up to 2025-11-25, cancellation, progress).
 - Changes to `/etc` overlays are handled by tukit; files below `/etc`,
   `/var` and `/home` are not this server's business (they are writable
   on the running system).
-- A sandboxed instance holding only `CAP_SYS_ADMIN`, instead of a
-  privileged one: an option for that in mcp-gateway (follow-up), or
-  tukitd marking its methods `SD_BUS_VTABLE_UNPRIVILEGED` upstream.
+- No capability at all: that needs tukitd to mark its methods
+  `SD_BUS_VTABLE_UNPRIVILEGED` upstream and leave access to its bus
+  policy (and polkit).
 - Possibly moving `dist/gateway` into mcp-gateway's `profiles/` as
   `mcp-gateway-profile-tukit`, like the other system management servers.
 

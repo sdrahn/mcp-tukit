@@ -155,19 +155,22 @@ jobs:
           # The run-tests.sh refuses to run without --disposable.
           ! /usr/libexec/mcp-server-tukit/tests/run-tests.sh --phase 1
           semodule -l | grep -x mcp_tukit
-          # The package alone adds no server: its definition is
-          # privileged, accepted only when the administrator links it into
-          # /etc; then there is one server more.
+          # The package alone adds no server: its definition has a
+          # capability (sandbox.capabilities), accepted only when the
+          # administrator links it into /etc; then there is one server
+          # more, and the gateway warns of its capability.
           mcp-gateway --check 2>&1 | grep -o 'backends=[0-9]*' | diff /tmp/before -
           mkdir -p /etc/mcp-gateway/servers.d
-          ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+          ln -s /usr/share/mcp-gateway/profiles/tukit.yaml /etc/mcp-gateway/servers.d/tukit.yaml
           mcp-gateway --check 2>&1 | tee /tmp/check.log
           test "$(grep -o 'backends=[0-9]*' /tmp/check.log | cut -d= -f2)" = "$(($(cut -d= -f2 /tmp/before) + 1))"
+          grep 'server with capabilities' /tmp/check.log | grep -q 'CAP_SYS_ADMIN'
+          ! grep -q 'privileged server' /tmp/check.log
           # As a vendor definition it would stop the gateway.
           rm /etc/mcp-gateway/servers.d/tukit.yaml
-          cp /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /usr/share/mcp-gateway/servers.d/tukit.yaml
+          cp /usr/share/mcp-gateway/profiles/tukit.yaml /usr/share/mcp-gateway/servers.d/tukit.yaml
           ! mcp-gateway --check >/tmp/vendor.log 2>&1
-          grep -q 'privileged: only allowed in' /tmp/vendor.log
+          grep -q 'sandbox.capabilities: only allowed in' /tmp/vendor.log
           rm /usr/share/mcp-gateway/servers.d/tukit.yaml
           # Bindings may name the roles the package ships.
           echo '{"roles": {}, "bindings": {"users": {"root": ["tukit-operator", "tukit-reader"]}}}' |

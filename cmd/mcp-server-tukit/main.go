@@ -5,9 +5,10 @@
 // the D-Bus service of tukit (openSUSE/transactional-update).
 //
 // It is meant to run behind mcp-gateway (github.com/sdrahn/mcp-gateway)
-// as a privileged server in its SELinux domain mcpsrv_tukit_t (tukitd
-// answers only callers with CAP_SYS_ADMIN): the server itself uses no
-// privileges, tukitd does the work, and the gateway's policy
+// in its sandbox with CAP_SYS_ADMIN only, in its SELinux domain
+// mcpsrv_tukit_t (tukitd answers only callers with CAP_SYS_ADMIN): the
+// server itself uses no privileges, tukitd does the work, and the
+// gateway's policy
 // decides who may call which tool, with whose approval.
 package main
 

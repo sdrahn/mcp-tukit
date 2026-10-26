@@ -4,9 +4,13 @@
 // the client ends, and progress notifications for requests that asked
 // for them. What a request does is the Handler's.
 //
-// It follows the protocol core of the servers shipped with mcp-gateway
-// (internal/mcpserver there), which the gateway relays as a legacy
-// (initialize-based) server.
+// It speaks both eras of MCP. Legacy clients (MCP 2025-11-25 and
+// earlier) begin with initialize. Modern clients (MCP 2026-07-28) send no
+// initialize: they ask server/discover, and every request carries its
+// protocol version in _meta ("io.modelcontextprotocol/protocolVersion");
+// such a request is answered under that version, with resultType in its
+// result, and one naming a version the server does not speak is refused
+// (CodeUnsupportedVersion). Neither era keeps state per connection here.
 package mcp
 
 import (
@@ -16,12 +20,63 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 )
 
-// ProtocolVersions are the protocol versions the server speaks, newest
-// first.
+// ProtocolVersions are the legacy (initialize-based) protocol versions
+// the server speaks, newest first.
 var ProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+
+// ModernVersions are the modern protocol versions the server speaks, as
+// server/discover lists them.
+var ModernVersions = []string{"2026-07-28"}
+
+// Reserved _meta keys of the modern per-request protocol fields.
+const (
+	MetaProtocolVersion = "io.modelcontextprotocol/protocolVersion"
+	MetaClientInfo      = "io.modelcontextprotocol/clientInfo"
+	MetaServerInfo      = "io.modelcontextprotocol/serverInfo"
+)
+
+// Request describes the request a context belongs to.
+type Request struct {
+	// Version is the modern protocol version of the request, empty for a
+	// legacy request.
+	Version string
+	// Client is the client's name from a modern request's _meta.
+	Client string
+}
+
+type requestKey struct{}
+
+// RequestOf returns what is known of the request of ctx.
+func RequestOf(ctx context.Context) Request {
+	r, _ := ctx.Value(requestKey{}).(Request)
+	return r
+}
+
+// requestMeta reads the modern protocol fields of a request's _meta.
+func requestMeta(params json.RawMessage) Request {
+	var p struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	var r Request
+	if json.Unmarshal(params, &p) != nil {
+		return r
+	}
+	_ = json.Unmarshal(p.Meta[MetaProtocolVersion], &r.Version)
+	var client struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(p.Meta[MetaClientInfo], &client) == nil {
+		r.Client = client.Name
+	}
+	return r
+}
+
+// legacyOnly are the methods modern clients do not send.
+var legacyOnly = map[string]bool{"initialize": true, "ping": true}
 
 // Negotiate returns the version to answer an initialize request asking
 // for requested: that one if spoken, else the newest (the client then
@@ -43,6 +98,7 @@ const MaxConcurrent = 8
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -54,6 +110,9 @@ const (
 	CodeMethodNotFound = -32601
 	CodeInvalidParams  = -32602
 	CodeInternal       = -32603
+	// CodeUnsupportedVersion refuses a modern request naming a protocol
+	// version the server does not speak (MCP 2026-07-28).
+	CodeUnsupportedVersion = -32022
 )
 
 // Handler answers one request. ctx ends when the client cancels it or the
@@ -103,7 +162,7 @@ func (s *Server) Serve(r io.Reader, maxMessage int) error {
 		line, tooLong, err := readLine(in, maxMessage)
 		if len(bytes.TrimSpace(line)) > 0 || tooLong {
 			if tooLong {
-				s.send(message{ID: json.RawMessage("null"), Error: &Error{CodeInvalidRequest, "message too large"}})
+				s.send(message{ID: json.RawMessage("null"), Error: &Error{Code: CodeInvalidRequest, Message: "message too large"}})
 			} else {
 				s.dispatch(line)
 			}
@@ -183,20 +242,32 @@ func progressToken(params json.RawMessage) json.RawMessage {
 func (s *Server) dispatch(line []byte) {
 	var m inMessage
 	if err := json.Unmarshal(line, &m); err != nil {
-		s.send(message{ID: json.RawMessage("null"), Error: &Error{CodeParse, "parse error"}})
+		s.send(message{ID: json.RawMessage("null"), Error: &Error{Code: CodeParse, Message: "parse error"}})
 		return
 	}
 	switch {
 	case m.Method == "" && len(m.ID) > 0:
 		return // a response; this server sends no requests
 	case m.Method == "":
-		s.send(message{ID: json.RawMessage("null"), Error: &Error{CodeInvalidRequest, "invalid request"}})
+		s.send(message{ID: json.RawMessage("null"), Error: &Error{Code: CodeInvalidRequest, Message: "invalid request"}})
 		return
 	case len(m.ID) == 0:
 		s.notification(m)
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	req := requestMeta(m.Params)
+	if req.Version != "" {
+		switch {
+		case !slices.Contains(ModernVersions, req.Version):
+			s.send(message{ID: m.ID, Error: &Error{Code: CodeUnsupportedVersion, Message: "Unsupported protocol version",
+				Data: map[string]any{"supported": ModernVersions, "requested": req.Version}}})
+			return
+		case legacyOnly[m.Method]:
+			s.send(message{ID: m.ID, Error: &Error{Code: CodeMethodNotFound, Message: "not in MCP " + req.Version}})
+			return
+		}
+	}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), requestKey{}, req))
 	if tok := progressToken(m.Params); tok != nil {
 		ctx = context.WithValue(ctx, progressKey{}, &progress{s: s, token: tok})
 	}
@@ -224,12 +295,32 @@ func (s *Server) dispatch(line []byte) {
 		case errors.As(err, &rerr):
 			resp.Error = rerr
 		case err != nil:
-			resp.Error = &Error{CodeInternal, err.Error()}
+			resp.Error = &Error{Code: CodeInternal, Message: err.Error()}
+		case req.Version != "":
+			resp.Result = complete(res)
 		default:
 			resp.Result = res
 		}
 		s.send(resp)
 	}()
+}
+
+// complete marks a modern request's result as final (resultType
+// "complete"; this server never asks the client for input), unless it is
+// marked already or is not an object.
+func complete(res any) any {
+	raw, err := json.Marshal(res)
+	if err != nil {
+		return res
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil || obj == nil {
+		return res
+	}
+	if _, ok := obj["resultType"]; !ok {
+		obj["resultType"] = json.RawMessage(`"complete"`)
+	}
+	return obj
 }
 
 func (s *Server) notification(m inMessage) {

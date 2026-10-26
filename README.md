@@ -278,8 +278,15 @@ Requirements: Go ≥ 1.24; for the module the reference-policy devel files
 
 The only dependency is [godbus](https://github.com/godbus/dbus) (the
 gateway uses it too). The MCP protocol core (`internal/mcp`) follows the
-gateway's own servers' (newline-delimited JSON-RPC on stdio, protocol
-versions up to 2025-11-25, cancellation, progress).
+gateway's own servers' (newline-delimited JSON-RPC on stdio,
+cancellation, progress). It speaks MCP 2026-07-28: `server/discover`
+instead of the `initialize` handshake, the protocol version in each
+request's `_meta`, `resultType` in results, and a request naming a
+version it does not speak refused with `-32022`. It keeps no state per
+connection. Earlier clients are served as before, with `initialize`
+and protocol versions 2025-11-25 down to 2024-11-05. mcp-gateway 1.8
+probes with `server/discover` and so uses the server without the
+handshake.
 
 ## Not yet
 

@@ -355,6 +355,10 @@ EOF
 	check "it has no_new_privs (the gateway's sandbox)" no_new_privs "${pid:-0}"
 	check "it has its MCS pair (not privileged)" test -n "$(categories "$ctx")"
 	check "the gateway lists it with CAP_SYS_ADMIN, not as privileged" lists_capability
+	# mcp-gateway probes with server/discover (MCP 2026-07-28): answered,
+	# the server is used without the initialize handshake.
+	check "the gateway speaks MCP 2026-07-28 to it (server/discover)" \
+		bash -c "journalctl -b -o cat | grep -q 'mcp-server-tukit: server/discover from mcp-gateway (MCP 2026-07-28)'"
 	check "the gateway's doctor finds nothing failing for tukit" \
 		bash -c '! mcp-gateway-admin doctor --server tukit 2>&1 | tee /dev/stderr | grep -qE "^fail"'
 

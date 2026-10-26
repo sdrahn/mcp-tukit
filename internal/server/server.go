@@ -86,6 +86,12 @@ func New(cfg Config, tk tukit.Backend) *Server {
 	return &Server{cfg: cfg, tk: tk, interval: 15 * time.Second}
 }
 
+// serverInfo is the server's name, title and version, as initialize and
+// server/discover give them.
+func (s *Server) serverInfo() map[string]any {
+	return map[string]any{"name": Name, "title": "Transactional updates (tukit)", "version": s.cfg.Version}
+}
+
 // Handle answers one MCP request.
 func (s *Server) Handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
@@ -97,8 +103,28 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 		return map[string]any{
 			"protocolVersion": mcp.Negotiate(p.ProtocolVersion),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": Name, "title": "Transactional updates (tukit)", "version": s.cfg.Version},
+			"serverInfo":      s.serverInfo(),
 			"instructions":    s.instructions(),
+		}, nil
+	case "server/discover":
+		// MCP 2026-07-28: what initialize told, without the handshake.
+		req := mcp.RequestOf(ctx)
+		client := req.Client
+		if client == "" {
+			client = "a client"
+		}
+		version := req.Version
+		if version == "" {
+			version = "no version given"
+		}
+		s.logf("server/discover from %s (MCP %s)", client, version)
+		return map[string]any{
+			"supportedVersions": mcp.ModernVersions,
+			"capabilities":      map[string]any{"tools": map[string]any{}},
+			"instructions":      s.instructions(),
+			"_meta": map[string]any{
+				mcp.MetaServerInfo: s.serverInfo(),
+			},
 		}, nil
 	case "ping":
 		return map[string]any{}, nil

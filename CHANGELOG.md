@@ -5,6 +5,16 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+- **MCP 2026-07-28.** The server answers `server/discover` (supported
+  versions, capabilities, instructions, server info) and serves requests
+  that carry the protocol version in `_meta` without an `initialize`
+  handshake, with `resultType` in their results; a request naming a
+  version it does not speak is refused with `-32022` and the versions it
+  speaks. Clients of 2025-11-25 and earlier are served as before.
+  mcp-gateway 1.8 probes with `server/discover` and now uses the server
+  as a modern one; the server logs each `server/discover` with the
+  client's name and version.
+
 ## v0.2.0 — 2026-10-24
 
 The server runs in mcp-gateway's sandbox, with the one capability

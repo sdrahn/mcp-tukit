@@ -9,7 +9,7 @@
     <param name="url">https://github.com/sdrahn/mcp-tukit.git</param>
     <param name="scm">git</param>
     <param name="revision">main</param>
-    <param name="versionformat">0.3.0+git%cd.%h</param>
+    <param name="versionformat">0.4.0+git%cd.%h</param>
     <param name="filename">mcp-server-tukit</param>
     <param name="exclude">.git</param>
     <param name="exclude">.github</param>

@@ -5,6 +5,12 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+## v0.3.0 — 2026-10-26
+
+The server speaks MCP 2026-07-28, the stateless revision, and mcp-gateway
+1.8 uses it that way; the name 0.1 shipped the gateway definition under
+is gone. Needs mcp-gateway 1.8, as 0.2.
+
 - **`tukit-privileged.yaml` is gone,** as announced in 0.2: the
   definition is `/usr/share/mcp-gateway/profiles/tukit.yaml` only. An
   administrator's link to the old name in `/etc/mcp-gateway/servers.d`

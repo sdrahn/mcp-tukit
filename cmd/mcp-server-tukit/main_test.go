@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -77,6 +78,70 @@ func TestStdio(t *testing.T) {
 		t.Errorf("unknown tool: %v", answers["4"])
 	}
 	if !strings.Contains(errOut.String(), "pkg install vim: snapshot 4: applied") {
+		t.Errorf("log: %s", errOut.String())
+	}
+}
+
+// A modern client (MCP 2026-07-28): server/discover instead of
+// initialize, the protocol version in every request's _meta.
+func TestStdioModern(t *testing.T) {
+	const meta = `"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"mcp-gateway","version":"1.8.0"},"io.modelcontextprotocol/clientCapabilities":{}`
+	in := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{` + meta + `}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{` + meta + `}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pkg_install","arguments":{"packages":["vim"]},"_meta":{"progressToken":"p1",` + meta + `}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_status","_meta":{"io.modelcontextprotocol/protocolVersion":"2099-01-01"}}}`,
+	}, "\n") + "\n"
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	var errOut bytes.Buffer
+	connect := func() (tukit.Backend, func(), error) { return slowTukit{}, func() {}, nil }
+	exit := make(chan int, 1)
+	go func() { exit <- run(nil, inR, outW, &errOut, connect); _ = outW.Close() }()
+	go func() { _, _ = io.WriteString(inW, in) }()
+	answers := map[string]map[string]any{}
+	progress := 0
+	sc := bufio.NewScanner(outR)
+	for len(answers) < 4 && sc.Scan() {
+		var m map[string]any
+		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
+			t.Fatalf("%q: %v", sc.Text(), err)
+		}
+		if m["method"] == "notifications/progress" {
+			progress++
+			continue
+		}
+		id, _ := json.Marshal(m["id"])
+		answers[string(id)] = m
+	}
+	_ = inW.Close()
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	if code := <-exit; code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	d, _ := answers["1"]["result"].(map[string]any)
+	if d == nil || fmt.Sprint(d["supportedVersions"]) != "[2026-07-28]" || d["resultType"] != "complete" ||
+		d["capabilities"].(map[string]any)["tools"] == nil || d["instructions"] == "" {
+		t.Fatalf("server/discover: %v", answers["1"])
+	}
+	if info := d["_meta"].(map[string]any)["io.modelcontextprotocol/serverInfo"].(map[string]any); info["name"] != "mcp-server-tukit" {
+		t.Errorf("serverInfo %v", info)
+	}
+	list := answers["2"]["result"].(map[string]any)
+	if n := len(list["tools"].([]any)); n != 10 || list["resultType"] != "complete" {
+		t.Errorf("tools/list: %d tools, resultType %v", n, list["resultType"])
+	}
+	res := answers["3"]["result"].(map[string]any)
+	if res["isError"] != false || res["resultType"] != "complete" || res["structuredContent"].(map[string]any)["status"] != "applied" {
+		t.Errorf("pkg_install: %v", res)
+	}
+	if progress == 0 {
+		t.Error("no progress notification")
+	}
+	if e, _ := answers["4"]["error"].(map[string]any); e == nil || e["code"] != float64(-32022) {
+		t.Errorf("unsupported version: %v", answers["4"])
+	}
+	if !strings.Contains(errOut.String(), "server/discover from mcp-gateway (MCP 2026-07-28)") {
 		t.Errorf("log: %s", errOut.String())
 	}
 }

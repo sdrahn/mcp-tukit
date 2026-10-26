@@ -146,7 +146,15 @@ jobs:
           rpm -ivh --nodeps gateway-rpms/mcp-gateway-[0-9]*.rpm
           mcp-gateway --check 2>&1 | grep -o 'backends=[0-9]*' >/tmp/before
           ls ~/rpmbuild/RPMS/*/mcp-server-tukit*.rpm | grep -v -e debuginfo -e debugsource >/tmp/ours
-          xargs rpm -ivh --nodeps </tmp/ours
+          # An administrator's link to tukit-privileged.yaml, the name 0.1
+          # and 0.2 shipped: the package points it at tukit.yaml.
+          mkdir -p /etc/mcp-gateway/servers.d
+          ln -s /usr/share/mcp-gateway/profiles/tukit-privileged.yaml /etc/mcp-gateway/servers.d/tukit.yaml
+          xargs rpm -ivh --nodeps </tmp/ours | tee /tmp/install.log
+          test ! -e /usr/share/mcp-gateway/profiles/tukit-privileged.yaml
+          test "$(readlink /etc/mcp-gateway/servers.d/tukit.yaml)" = /usr/share/mcp-gateway/profiles/tukit.yaml
+          grep -q 'now links to tukit.yaml' /tmp/install.log
+          rm /etc/mcp-gateway/servers.d/tukit.yaml
           mcp-server-tukit -version
           test -f /usr/lib/systemd/system/mcp-tukit-reboot.service
           systemd-analyze verify /usr/lib/systemd/system/mcp-tukit-reboot.service 2>&1 | grep -v -e 'transactional-update' -e '^$' | tee /tmp/verify.log

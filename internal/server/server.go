@@ -64,6 +64,9 @@ type Server struct {
 	change sync.Mutex
 	// interval between progress notifications while a command runs.
 	interval time.Duration
+	// logMu serializes the lines written to cfg.Log: requests are handled
+	// concurrently, and the writer need not be safe for that.
+	logMu sync.Mutex
 }
 
 // New returns a server using tk.
@@ -830,7 +833,10 @@ func (s *Server) discard(snap, what string) {
 }
 
 func (s *Server) logf(format string, a ...any) {
-	_, _ = fmt.Fprintf(s.cfg.Log, Name+": "+format+"\n", a...)
+	line := fmt.Sprintf(Name+": "+format+"\n", a...)
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	_, _ = io.WriteString(s.cfg.Log, line)
 }
 
 func changeResult(c change) map[string]any {

@@ -5,6 +5,11 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+- **`tukit-privileged.yaml` is gone,** as announced in 0.2: the
+  definition is `/usr/share/mcp-gateway/profiles/tukit.yaml` only. An
+  administrator's link to the old name in `/etc/mcp-gateway/servers.d`
+  would dangle and stop the gateway, so the package update points it at
+  `tukit.yaml` and says so.
 - **MCP 2026-07-28.** The server answers `server/discover` (supported
   versions, capabilities, instructions, server info) and serves requests
   that carry the protocol version in `_meta` without an `initialize`

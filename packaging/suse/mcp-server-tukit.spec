@@ -144,6 +144,20 @@ go test ./...
 # Not restarted on update: they would reboot or apply.
 %service_del_postun_without_restart mcp-tukit-reboot.service mcp-tukit-apply.service
 
+%posttrans gateway
+# 0.1 shipped the definition as tukit-privileged.yaml, 0.2 kept that name
+# as a link to tukit.yaml, and 0.3 no longer has it. A link the
+# administrator made to it would dangle, and the gateway would refuse
+# its configuration: point it at tukit.yaml, the same definition.
+old=%{_datadir}/mcp-gateway/profiles/tukit-privileged.yaml
+for f in %{_sysconfdir}/mcp-gateway/servers.d/*.yaml; do
+    if [ -L "$f" ] && [ "$(readlink "$f")" = "$old" ]; then
+        ln -sfn %{_datadir}/mcp-gateway/profiles/tukit.yaml "$f"
+        echo "mcp-server-tukit-gateway: $f now links to tukit.yaml ($old is gone)"
+    fi
+done
+:
+
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
@@ -172,9 +186,6 @@ fi
 %dir %{_datadir}/mcp-gateway/policy/mcp
 %dir %{_datadir}/mcp-gateway/policy/mcp/profiles
 %{_datadir}/mcp-gateway/profiles/tukit.yaml
-# 0.1's name, a link to tukit.yaml: links administrators made to it keep
-# working, now in the sandbox (removed in 0.3).
-%{_datadir}/mcp-gateway/profiles/tukit-privileged.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/tukit
 %{_unitdir}/mcp-tukit-reboot.service
 %{_unitdir}/mcp-tukit-apply.service

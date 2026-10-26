@@ -61,8 +61,6 @@ dist/selinux/mcp_tukit.pp: dist/selinux/mcp_tukit.te dist/selinux/mcp_tukit.fc
 install: build
 	install -Dm0755 bin/mcp-server-tukit $(DESTDIR)$(BINDIR)/mcp-server-tukit
 	install -Dm0644 dist/gateway/tukit.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/tukit.yaml
-	# 0.1's name, for links made to it (removed in 0.3).
-	ln -sf tukit.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/tukit-privileged.yaml
 	install -Dm0644 dist/gateway/roles.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/tukit/data.yaml
 	install -Dm0644 dist/systemd/mcp-tukit-reboot.service $(DESTDIR)$(UNITDIR)/mcp-tukit-reboot.service
 	install -Dm0644 dist/systemd/mcp-tukit-apply.service $(DESTDIR)$(UNITDIR)/mcp-tukit-apply.service

@@ -279,7 +279,7 @@ phase1() {
 	check "/usr/bin/mcp-server-tukit is labeled mcpsrv_tukit_exec_t" file_has_type /usr/bin/mcp-server-tukit mcpsrv_tukit_exec_t
 	local def=/usr/share/mcp-gateway/profiles/tukit.yaml
 	check "the definition is installed" test -f "$def"
-	check "0.1's name links to it" test "$(readlink /usr/share/mcp-gateway/profiles/tukit-privileged.yaml)" = tukit.yaml
+	check "0.1's name is gone (0.3)" test ! -e /usr/share/mcp-gateway/profiles/tukit-privileged.yaml
 	# A package never gives a server a capability by itself (mcp-gateway
 	# accepts definitions with sandbox.capabilities only from /etc).
 	check "no definition is active from the package alone" test ! -e /usr/share/mcp-gateway/servers.d/tukit.yaml

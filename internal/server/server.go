@@ -252,6 +252,24 @@ func (s *Server) tools() []*tool {
 				"snapshot": map[string]any{"type": "string", "pattern": "^[0-9]{1,10}$", "description": "the snapshot's number"},
 			}, []string{"snapshot"}),
 			output: simpleSchema, call: s.deleteSnapshot},
+		{name: "list_updates", title: "List available updates", readOnly: true, idempotent: true, openWorld: true,
+			description: "Lists the updates the repositories offer, as the system would be from base: kind package (zypper list-updates: newer versions of installed packages) " +
+				"or patch (zypper list-patches: the needed patches, with category and severity). Changes nothing: it runs zypper in a new snapshot, which is discarded. " +
+				"zypper refreshes repositories whose metadata are older than its refresh delay; refresh_repositories refreshes them now. " +
+				"On MicroOS and Tumbleweed-based systems update_system with dist-upgrade may bring more than list_updates shows.",
+			input: object(map[string]any{
+				"kind": map[string]any{"type": "string", "enum": []string{"package", "patch"}, "default": "package"},
+				"base": baseSchema,
+			}, nil),
+			output: updateListSchema, call: s.listUpdates},
+		{name: "refresh_repositories", title: "Refresh the repositories", idempotent: true, openWorld: true,
+			description: "Refreshes the metadata of the enabled repositories (zypper refresh), so that list_updates and later changes see what the repositories offer now. " +
+				"It runs zypper in a new snapshot, which is discarded; the metadata are kept (/var/cache/zypp is the running system's). It installs nothing.",
+			input: object(map[string]any{
+				"force": map[string]any{"type": "boolean", "description": "download the metadata even if they are up to date (zypper refresh --force)"},
+				"base":  baseSchema,
+			}, nil),
+			output: refreshSchema, call: s.refreshRepositories},
 		{name: "cleanup_snapshots", title: "Clean up snapshots", idempotent: true,
 			description: "Removes snapshots that are no longer needed, by the configured cleanup rules (tukit cleanup, transactional-update cleanup).",
 			input:       object(nil, nil), output: simpleSchema, call: s.cleanup},
@@ -739,14 +757,30 @@ type change struct {
 // is finished (the snapshot closed or discarded) rather than left
 // half-done, within the configured timeout.
 func (s *Server) transact(ctx context.Context, base, what string, argv []string, decide func(tukit.CallResult) outcome) map[string]any {
-	done := make(chan change, 1)
+	c := exclusive(s, ctx, base, what, func(work context.Context, opened chan<- string) change {
+		return s.run(work, base, what, argv, decide, opened)
+	}, func(snap string) change {
+		// Not answered (cancelled), but the change goes on to its end.
+		return change{Status: "running", Snapshot: snap, Base: base, Command: argv}
+	})
+	return changeResult(c)
+}
+
+// exclusive runs work, which opens a snapshot from base, in the
+// background under the change lock (one snapshot of this instance at a
+// time: each one starts from the default, and zypper's cache is shared),
+// within the configured timeout, with progress on ctx while it runs. If
+// ctx ends first, work goes on to its end and exclusive returns
+// cancelled(snapshot) at once.
+func exclusive[T any](s *Server, ctx context.Context, base, what string, work func(ctx context.Context, opened chan<- string) T, cancelled func(snap string) T) T {
+	done := make(chan T, 1)
 	opened := make(chan string, 1)
 	go func() {
 		s.change.Lock()
 		defer s.change.Unlock()
-		work, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.Timeout)
+		w, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.Timeout)
 		defer cancel()
-		done <- s.run(work, base, what, argv, decide, opened)
+		done <- work(w, opened)
 	}()
 	tick := time.NewTicker(s.interval)
 	defer tick.Stop()
@@ -754,15 +788,14 @@ func (s *Server) transact(ctx context.Context, base, what string, argv []string,
 	start := time.Now()
 	for {
 		select {
-		case c := <-done:
-			return changeResult(c)
+		case r := <-done:
+			return r
 		case snap = <-opened:
 			mcp.Progress(ctx, fmt.Sprintf("snapshot %s opened from %s; running %s", snap, base, what))
 		case <-tick.C:
 			mcp.Progress(ctx, fmt.Sprintf("running %s in snapshot %s (%s)", what, snap, time.Since(start).Round(time.Second)))
 		case <-ctx.Done():
-			// Not answered (cancelled), but the change goes on to its end.
-			return changeResult(change{Status: "running", Snapshot: snap, Base: base, Command: argv})
+			return cancelled(snap)
 		}
 	}
 }

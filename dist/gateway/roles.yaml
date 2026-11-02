@@ -6,15 +6,19 @@
 version: 1
 roles:
   tukit-reader:
-    description: 'tukit: snapshots of the root file system, and whether a reboot is pending'
+    description: 'tukit: snapshots of the root file system, whether a reboot is pending, and the updates available'
     permissions:
       - {server: tukit, tool: get_status}
       - {server: tukit, tool: list_snapshots}
+      - {server: tukit, tool: list_updates}
   tukit-operator:
-    description: 'tukit-reader, and with approval: install, remove and update packages in new snapshots, roll back, delete and clean up snapshots, apply, reboot'
+    description: 'tukit-reader, refresh the repositories, and with approval: install, remove and update packages in new snapshots, roll back, delete and clean up snapshots, apply, reboot'
     permissions:
       - {server: tukit, tool: get_status}
       - {server: tukit, tool: list_snapshots}
+      - {server: tukit, tool: list_updates}
+      # Changes only zypper's repository cache.
+      - {server: tukit, tool: refresh_repositories}
       - server: tukit
         tool: rollback
         require_approval: true

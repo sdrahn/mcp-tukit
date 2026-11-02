@@ -5,6 +5,16 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+- **`list_updates` and `refresh_repositories`.** `list_updates` lists
+  the package updates (`zypper list-updates`) or the needed patches
+  (`zypper list-patches`, with category, severity and whether a reboot
+  is suggested) as structured data; `refresh_repositories` runs `zypper
+  refresh`. tukitd has no such methods: both run zypper in a new
+  snapshot, which is discarded, as transactional-update runs `zypper
+  refresh`; the repository metadata are kept (`/var/cache` is the
+  running system's). `tukit-reader` gets `list_updates`,
+  `tukit-operator` both, without approval.
+
 ## v0.3.0 — 2026-10-26
 
 The server speaks MCP 2026-07-28, the stateless revision, and mcp-gateway

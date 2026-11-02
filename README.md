@@ -103,6 +103,8 @@ anything with spaces or shell characters are refused.
 |---|---|---|
 | `get_status` | no | active snapshot, default snapshot, whether a reboot is pending |
 | `list_snapshots` | no | snapshots with number, date, description, active/default |
+| `list_updates` | no | the package updates (`zypper list-updates`) or needed patches (`zypper list-patches`, with category and severity) the repositories offer, as the system would be from `base` |
+| `refresh_repositories` | repository cache only | `zypper refresh` (`force`) |
 | `pkg_install` | yes | `zypper install` in a new snapshot (`accept_licenses`, `no_recommends`) |
 | `pkg_remove` | yes | `zypper remove` in a new snapshot (`clean_deps`) |
 | `update_system` | yes | `zypper update` / `dist-upgrade` / `patch` in a new snapshot |
@@ -197,8 +199,10 @@ systemctl reload mcp-gateway.service
 The three layers of the gateway's chapter 13 apply:
 
 - **The gateway's policy** decides who may call which tool:
-  `tukit-reader` gets `get_status` and `list_snapshots`;
-  `tukit-operator` gets those and every change **with approval**
+  `tukit-reader` gets `get_status`, `list_snapshots` and
+  `list_updates`; `tukit-operator` gets those,
+  `refresh_repositories` without approval (it changes only zypper's
+  repository cache), and every change **with approval**
   (out-of-band, in Cockpit); `rollback`, `apply`, `reboot` and
   `run_in_snapshot` need an approval of their own each time (scope
   `once`).

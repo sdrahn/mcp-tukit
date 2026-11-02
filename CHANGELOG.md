@@ -5,6 +5,12 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+## v0.4.0 — 2026-11-02
+
+Two tools for what transactional-update has no command for: the updates
+the repositories offer, and refreshing the repositories. Needs
+mcp-gateway 1.8, as 0.2 and 0.3.
+
 - **`list_updates` and `refresh_repositories`.** `list_updates` lists
   the package updates (`zypper list-updates`) or the needed patches
   (`zypper list-patches`, with category, severity and whether a reboot

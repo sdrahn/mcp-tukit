@@ -308,7 +308,9 @@ bindings:
     rita: [tukit-reader]
     ned: []
 approvers:
-  default: [self]
+  # tuki approves the calls; self alone would ask for tuki's password
+  # (polkit) from mcp-gateway 1.9 on, approvals.self_needs_password.
+  default: [self, 'user:tuki']
 EOF
 	check "the role data names the shipped roles" bash -c 'mcp-gateway --check-policy-data >/dev/null 2>&1'
 

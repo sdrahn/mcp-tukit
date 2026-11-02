@@ -16,8 +16,8 @@ SELinux enforcing.
 
 ## Status
 
-The current release is **0.2.0** (2026-10-24), from the branch
-`release-0.2`. `main` is 0.3 in development. Releases, with their source
+The current release is **0.3.0** (2026-10-26), from the branch
+`release-0.3`. `main` is 0.4 in development. Releases, with their source
 tarballs and notes, are on the
 [releases page](https://github.com/sdrahn/mcp-tukit/releases), and the
 changes are in [CHANGELOG.md](CHANGELOG.md). Packages come from OBS
@@ -25,6 +25,7 @@ changes are in [CHANGELOG.md](CHANGELOG.md). Packages come from OBS
 
 | Version | Branch | mcp-gateway | The server runs |
 |---|---|---|---|
+| 0.3.x | `release-0.3` | 1.8.0 or later | in the gateway's sandbox with `CAP_SYS_ADMIN` only, and speaks MCP 2026-07-28 to it |
 | 0.2.x | `release-0.2` | 1.8.0 or later | in the gateway's sandbox with `CAP_SYS_ADMIN` only (`sandbox.capabilities`) |
 | 0.1.x | `release-0.1` | 1.7.0 or later | as a privileged server (`privileged: true`) |
 

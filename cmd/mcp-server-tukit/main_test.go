@@ -64,7 +64,7 @@ func TestStdio(t *testing.T) {
 	if v := answers["1"]["result"].(map[string]any)["protocolVersion"]; v != "2025-06-18" {
 		t.Errorf("protocol version %v", v)
 	}
-	if n := len(answers["2"]["result"].(map[string]any)["tools"].([]any)); n != 10 {
+	if n := len(answers["2"]["result"].(map[string]any)["tools"].([]any)); n != 12 {
 		t.Errorf("%d tools", n)
 	}
 	res := answers["3"]["result"].(map[string]any)
@@ -128,7 +128,7 @@ func TestStdioModern(t *testing.T) {
 		t.Errorf("serverInfo %v", info)
 	}
 	list := answers["2"]["result"].(map[string]any)
-	if n := len(list["tools"].([]any)); n != 10 || list["resultType"] != "complete" {
+	if n := len(list["tools"].([]any)); n != 12 || list["resultType"] != "complete" {
 		t.Errorf("tools/list: %d tools, resultType %v", n, list["resultType"])
 	}
 	res := answers["3"]["result"].(map[string]any)

@@ -16,8 +16,8 @@ SELinux enforcing.
 
 ## Status
 
-The current release is **0.2.0** (2026-10-24), from the branch
-`release-0.2`. `main` is 0.3 in development. Releases, with their source
+The current release is **0.3.0** (2026-10-26), from the branch
+`release-0.3`. `main` is 0.4 in development. Releases, with their source
 tarballs and notes, are on the
 [releases page](https://github.com/sdrahn/mcp-tukit/releases), and the
 changes are in [CHANGELOG.md](CHANGELOG.md). Packages come from OBS
@@ -25,6 +25,7 @@ changes are in [CHANGELOG.md](CHANGELOG.md). Packages come from OBS
 
 | Version | Branch | mcp-gateway | The server runs |
 |---|---|---|---|
+| 0.3.x | `release-0.3` | 1.8.0 or later | in the gateway's sandbox with `CAP_SYS_ADMIN` only, and speaks MCP 2026-07-28 to it |
 | 0.2.x | `release-0.2` | 1.8.0 or later | in the gateway's sandbox with `CAP_SYS_ADMIN` only (`sandbox.capabilities`) |
 | 0.1.x | `release-0.1` | 1.7.0 or later | as a privileged server (`privileged: true`) |
 
@@ -35,7 +36,8 @@ How it is tested:
 - **CI** builds the packages as OBS does in openSUSE Tumbleweed and Leap
   16.0 containers, with rpmlint and an installation test.
 - **The functional tests** run in a MicroOS VM with SELinux enforcing
-  and tukitd 6.1.3. They install a package into a new snapshot, reboot
+  and tukitd 6.1.3. They refresh the repositories and list the updates,
+  install a package into a new snapshot, reboot
   with the server's own tool, apply a snapshot without a reboot, roll
   back and delete snapshots, and check that there are no SELinux
   denials.
@@ -103,6 +105,8 @@ anything with spaces or shell characters are refused.
 |---|---|---|
 | `get_status` | no | active snapshot, default snapshot, whether a reboot is pending |
 | `list_snapshots` | no | snapshots with number, date, description, active/default |
+| `list_updates` | no | the package updates (`zypper list-updates`) or needed patches (`zypper list-patches`, with category and severity) the repositories offer, as the system would be from `base` |
+| `refresh_repositories` | repository cache only | `zypper refresh` (`force`) |
 | `pkg_install` | yes | `zypper install` in a new snapshot (`accept_licenses`, `no_recommends`) |
 | `pkg_remove` | yes | `zypper remove` in a new snapshot (`clean_deps`) |
 | `update_system` | yes | `zypper update` / `dist-upgrade` / `patch` in a new snapshot |
@@ -197,8 +201,10 @@ systemctl reload mcp-gateway.service
 The three layers of the gateway's chapter 13 apply:
 
 - **The gateway's policy** decides who may call which tool:
-  `tukit-reader` gets `get_status` and `list_snapshots`;
-  `tukit-operator` gets those and every change **with approval**
+  `tukit-reader` gets `get_status`, `list_snapshots` and
+  `list_updates`; `tukit-operator` gets those,
+  `refresh_repositories` without approval (it changes only zypper's
+  repository cache), and every change **with approval**
   (out-of-band, in Cockpit); `rollback`, `apply`, `reboot` and
   `run_in_snapshot` need an approval of their own each time (scope
   `once`).

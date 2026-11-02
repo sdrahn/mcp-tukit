@@ -308,7 +308,9 @@ bindings:
     rita: [tukit-reader]
     ned: []
 approvers:
-  default: [self]
+  # tuki approves the calls; self alone would ask for tuki's password
+  # (polkit) from mcp-gateway 1.9 on, approvals.self_needs_password.
+  default: [self, 'user:tuki']
 EOF
 	check "the role data names the shipped roles" bash -c 'mcp-gateway --check-policy-data >/dev/null 2>&1'
 
@@ -329,6 +331,8 @@ EOF
 	check "rita does not see pkg_install" bash -c '! jq -e ".tools | map(.name) | index(\"pkg_install\")" <<<"$1" >/dev/null' _ "$out"
 	check "rita does not see reboot" bash -c '! jq -e ".tools | map(.name) | index(\"reboot\")" <<<"$1" >/dev/null' _ "$out"
 	check "rita does not see apply" bash -c '! jq -e ".tools | map(.name) | index(\"apply\")" <<<"$1" >/dev/null' _ "$out"
+	check "rita sees list_updates" listed list_updates
+	check "rita does not see refresh_repositories" bash -c '! jq -e ".tools | map(.name) | index(\"refresh_repositories\")" <<<"$1" >/dev/null' _ "$out"
 
 	section "Reading"
 	local active default
@@ -339,6 +343,27 @@ EOF
 	check "get_status agrees with tukit on the default" test "$(structured default)" = "$default"
 	tool rita list_snapshots '{}'
 	check "rita: list_snapshots has the active snapshot" bash -c "jq -e '.structuredContent.snapshots | map(select(.active)) | .[0].number == \"$active\"' <<<\"\$1\" >/dev/null" _ "$out"
+
+	section "Updates"
+	# Both run zypper in a snapshot that is discarded: nothing is kept.
+	local count
+	count=$(snapshot_count)
+	tool tuki refresh_repositories '{}'
+	echo "  refresh: $(structured status)"
+	check "tuki: refresh_repositories without an approval" \
+		bash -c '[ "$1" = 0 ] && { [ "$2" = refreshed ] || [ "$2" = partial ]; }' _ "$rc" "$(structured status)"
+	tool rita refresh_repositories '{}'
+	check "rita (reader) may not refresh" refused
+	tool rita list_updates '{}'
+	echo "  package updates: $(structured count)"
+	check "rita: list_updates lists the package updates" bash -c '[ "$1" = 0 ] && [[ $2 =~ ^[0-9]+$ ]]' _ "$rc" "$(structured count)"
+	check "... each with a name and a version" \
+		bash -c "jq -e '.structuredContent.updates | all(.name != \"\" and .version != \"\")' <<<\"\$1\" >/dev/null" _ "$out"
+	tool rita list_updates '{"kind":"patch"}'
+	echo "  needed patches: $(structured count)"
+	check "rita: list_updates lists the needed patches" bash -c '[ "$1" = 0 ] && [[ $2 =~ ^[0-9]+$ ]]' _ "$rc" "$(structured count)"
+	check "... no snapshot is left behind" test "$(snapshot_count)" = "$count"
+	check "... the default is unchanged" test "$(default_snapshot)" = "$default"
 
 	section "Instance"
 	local pid ctx

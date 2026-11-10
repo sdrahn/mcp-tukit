@@ -53,9 +53,12 @@ type Server struct {
 	cfg Config
 	tk  tukit.Backend
 
-	// change serializes the changes of this instance: each one opens a
-	// snapshot from the default, and two at once would race for it.
-	change sync.Mutex
+	// change serializes the changes of this instance (lock.go).
+	change changeLock
+	// byName and listing are the tools and the tools/list answer, built
+	// once: neither changes while the server runs.
+	byName  map[string]*tool
+	listing json.RawMessage
 	// interval between progress notifications while a command runs.
 	interval time.Duration
 	// logMu serializes the lines written to cfg.Log: requests are handled
@@ -80,7 +83,9 @@ func New(cfg Config, tk tukit.Backend) *Server {
 	if cfg.Log == nil {
 		cfg.Log = io.Discard
 	}
-	return &Server{cfg: cfg, tk: tk, interval: 15 * time.Second}
+	s := &Server{cfg: cfg, tk: tk, interval: 15 * time.Second, change: newChangeLock()}
+	s.register()
+	return s
 }
 
 // serverInfo is the server's name, title and version, as initialize and
@@ -126,7 +131,7 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": s.toolList()}, nil
+		return map[string]any{"tools": s.listing}, nil
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`
@@ -135,7 +140,7 @@ func (s *Server) Handle(ctx context.Context, method string, params json.RawMessa
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, &mcp.Error{Code: mcp.CodeInvalidParams, Message: "invalid params"}
 		}
-		t := s.tool(p.Name)
+		t := s.byName[p.Name]
 		if t == nil {
 			return nil, &mcp.Error{Code: mcp.CodeInvalidParams, Message: "unknown tool " + strconv.Quote(p.Name)}
 		}
@@ -180,7 +185,8 @@ func (s *Server) instructions() string {
 }
 
 func (s *Server) logf(format string, a ...any) {
-	line := fmt.Sprintf(Name+": "+format+"\n", a...)
+	// One line, whatever a caller put into a command or a name.
+	line := Name + ": " + shorten(printable(fmt.Sprintf(format, a...)), maxLogLine) + "\n"
 	s.logMu.Lock()
 	defer s.logMu.Unlock()
 	_, _ = io.WriteString(s.cfg.Log, line)

@@ -31,18 +31,9 @@ func (s *Server) reboot(ctx context.Context, args json.RawMessage) map[string]an
 	defer s.change.Unlock()
 	ctx, cancel := opContext(context.WithoutCancel(ctx))
 	defer cancel()
-	snaps, err := s.snapshots(ctx)
+	active, def, err := s.activeDefault(ctx)
 	if err != nil {
 		return toolError("listing snapshots: %v", err)
-	}
-	var active, def string
-	for _, sn := range snaps {
-		if sn.Active {
-			active = sn.Number
-		}
-		if sn.Default {
-			def = sn.Number
-		}
 	}
 	if def == "" {
 		return toolError("tukit names no default snapshot; not rebooting")

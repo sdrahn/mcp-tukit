@@ -135,7 +135,7 @@ func TestInstallApplied(t *testing.T) {
 	}
 	equal(t, f.logged(), []string{
 		"open 1 default MCP: pkg install vim pattern:base kernel-default>=6.4",
-		"call 1 /usr/bin/zypper --non-interactive install --no-recommends vim pattern:base kernel-default>=6.4",
+		"call 1 /usr/bin/zypper --non-interactive install --no-recommends -- vim pattern:base kernel-default>=6.4",
 		"close 1",
 	})
 	c := r["structuredContent"].(change)
@@ -174,7 +174,7 @@ func TestFailureDiscards(t *testing.T) {
 				t.Fatalf("result %v", r)
 			}
 			equal(t, f.logged(), []string{"open 1 default MCP: pkg remove nosuch",
-				"call 1 /usr/bin/zypper --non-interactive remove --clean-deps nosuch", "abort 1"})
+				"call 1 /usr/bin/zypper --non-interactive remove --clean-deps -- nosuch", "abort 1"})
 		})
 	}
 }
@@ -345,14 +345,14 @@ func TestRollback(t *testing.T) {
 
 func TestToolList(t *testing.T) {
 	res, _ := New(Config{}, &fake{}).Handle(context.Background(), "tools/list", nil)
-	tools := res.(map[string]any)["tools"].([]map[string]any)
+	// The listing is built once, as JSON.
+	var tools []map[string]any
+	if err := json.Unmarshal(res.(map[string]any)["tools"].(json.RawMessage), &tools); err != nil {
+		t.Fatal(err)
+	}
 	byName := map[string]map[string]any{}
 	for _, tl := range tools {
 		byName[tl["name"].(string)] = tl
-		// The schemas must be valid JSON.
-		if _, err := json.Marshal(tl); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if _, ok := byName["run_in_snapshot"]; ok {
 		t.Fatal("run_in_snapshot listed")
@@ -428,7 +428,7 @@ func TestReboot(t *testing.T) {
 	<-done
 
 	// Without a unit, no tool.
-	if New(Config{}, &fake{}).tool("reboot") != nil {
+	if New(Config{}, &fake{}).byName["reboot"] != nil {
 		t.Fatal("reboot offered without a unit")
 	}
 }
@@ -489,7 +489,7 @@ func TestApply(t *testing.T) {
 	<-done
 
 	// Without a unit, no tool.
-	if New(Config{}, &fake{}).tool("apply") != nil {
+	if New(Config{}, &fake{}).byName["apply"] != nil {
 		t.Fatal("apply offered without a unit")
 	}
 }

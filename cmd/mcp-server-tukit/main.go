@@ -18,7 +18,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/sdrahn/mcp-tukit/internal/mcp"
@@ -30,6 +31,10 @@ import (
 // order it reads them (its CONFFILESYSTEM, the snippets, CONFFILE).
 var rebootConfig = []string{"/usr/etc/transactional-update.conf", "/usr/etc/transactional-update.conf.d",
 	"/etc/transactional-update.conf"}
+
+// unitName is what a unit of the reboot and apply tools may be called:
+// a service's name in systemd's characters, no path.
+var unitName = regexp.MustCompile(`^[A-Za-z0-9:_.@-]{1,200}\.service$`)
 
 // version is set at build time (-ldflags "-X main.version=…").
 var version = "0.5.0+dev"
@@ -79,8 +84,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, connect func(
 		_, _ = fmt.Fprintf(stderr, "%s: -base %q: must be default, active or a snapshot number\n", server.Name, *base)
 		return 2
 	}
+	// The path is run as root in the snapshots: nothing found by name.
+	if !filepath.IsAbs(*zypper) || filepath.Clean(*zypper) != *zypper {
+		_, _ = fmt.Fprintf(stderr, "%s: -zypper %q: must be an absolute, clean path\n", server.Name, *zypper)
+		return 2
+	}
 	for flag, unit := range map[string]string{"-reboot-unit": *rebootUnit, "-apply-unit": *applyUnit} {
-		if unit != "" && (!strings.HasSuffix(unit, ".service") || strings.ContainsAny(unit, "/ ")) {
+		if unit != "" && !unitName.MatchString(unit) {
 			_, _ = fmt.Fprintf(stderr, "%s: %s %q: must name a .service unit\n", server.Name, flag, unit)
 			return 2
 		}

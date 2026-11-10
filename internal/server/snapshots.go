@@ -137,10 +137,13 @@ func (s *Server) rollback(ctx context.Context, args json.RawMessage) map[string]
 	if err := decode(args, &a); err != nil {
 		return toolError("%v", err)
 	}
-	if !tukit.ValidSnapshot(a.Snapshot, false) {
+	// Snapshot 0 is snapper's "current", the live file system.
+	if !tukit.ValidSnapshot(a.Snapshot, false) || a.Snapshot == "0" {
 		return toolError("snapshot %q: must be a snapshot number", a.Snapshot)
 	}
-	s.change.Lock()
+	if err := s.lockChange(ctx); err != nil {
+		return toolError("%v", err)
+	}
 	defer s.change.Unlock()
 	ctx, cancel := opContext(context.WithoutCancel(ctx))
 	defer cancel()
@@ -167,7 +170,9 @@ func (s *Server) deleteSnapshot(ctx context.Context, args json.RawMessage) map[s
 	if !tukit.ValidSnapshot(a.Snapshot, false) || a.Snapshot == "0" {
 		return toolError("snapshot %q: must be a snapshot number", a.Snapshot)
 	}
-	s.change.Lock()
+	if err := s.lockChange(ctx); err != nil {
+		return toolError("%v", err)
+	}
 	defer s.change.Unlock()
 	ctx, cancel := opContext(context.WithoutCancel(ctx))
 	defer cancel()
@@ -203,7 +208,9 @@ func (s *Server) cleanup(ctx context.Context, args json.RawMessage) map[string]a
 	if err := decode(args, &struct{}{}); err != nil {
 		return toolError("%v", err)
 	}
-	s.change.Lock()
+	if err := s.lockChange(ctx); err != nil {
+		return toolError("%v", err)
+	}
 	defer s.change.Unlock()
 	ctx, cancel := opContext(context.WithoutCancel(ctx))
 	defer cancel()

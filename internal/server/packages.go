@@ -65,7 +65,7 @@ func (s *Server) pkgInstall(ctx context.Context, args json.RawMessage) map[strin
 	if a.NoRecommends {
 		argv = append(argv, "--no-recommends")
 	}
-	argv = append(argv, a.Packages...)
+	argv = append(append(argv, "--"), a.Packages...)
 	return s.transact(ctx, base, "pkg install "+strings.Join(a.Packages, " "), argv, zypperOutcome)
 }
 
@@ -89,7 +89,7 @@ func (s *Server) pkgRemove(ctx context.Context, args json.RawMessage) map[string
 	if a.CleanDeps {
 		argv = append(argv, "--clean-deps")
 	}
-	argv = append(argv, a.Packages...)
+	argv = append(append(argv, "--"), a.Packages...)
 	return s.transact(ctx, base, "pkg remove "+strings.Join(a.Packages, " "), argv, zypperOutcome)
 }
 
@@ -150,6 +150,9 @@ func (s *Server) runInSnapshot(ctx context.Context, args json.RawMessage) map[st
 	}
 	base, err := s.base(a.Base)
 	if err != nil {
+		return toolError("%v", err)
+	}
+	if err := checkDescription(a.Description); err != nil {
 		return toolError("%v", err)
 	}
 	desc := a.Description

@@ -159,19 +159,3 @@ func systemdAway(err error) bool {
 	}
 	return false
 }
-
-func (l *Lazy) StartUnit(ctx context.Context, unit string) (string, error) {
-	c, err := l.client()
-	if err != nil {
-		return "", err
-	}
-	return c.StartUnit(ctx, unit)
-}
-
-func (l *Lazy) RunUnit(ctx context.Context, unit string) (UnitRun, error) {
-	c, err := l.client()
-	if err != nil {
-		return UnitRun{}, err
-	}
-	return c.RunUnit(ctx, unit)
-}

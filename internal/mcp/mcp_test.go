@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -158,5 +159,50 @@ func TestModern(t *testing.T) {
 		if got[key] != want {
 			t.Errorf("%s:\n got %s\nwant %s", key, got[key], want)
 		}
+	}
+}
+
+// A request id still in flight is not taken again, and no more than
+// MaxPending requests are held: a client cannot confuse cancellation or
+// queue work without bound.
+func TestPendingBounds(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, MaxPending)
+	h := func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		started <- struct{}{}
+		<-release
+		return "done", nil
+	}
+	inR, inW := io.Pipe()
+	var out syncBuffer
+	done := make(chan error)
+	go func() { done <- New(h, &out).Serve(inR, 1<<20) }()
+	write := func(s string) { _, _ = io.WriteString(inW, s+"\n") }
+	waitOut := func(want string) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); !strings.Contains(out.String(), want); {
+			if time.Now().After(deadline) {
+				t.Fatalf("no %s in:\n%s", want, out.String())
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	write(`{"jsonrpc":"2.0","id":"a","method":"slow"}`)
+	<-started
+	write(`{"jsonrpc":"2.0","id":"a","method":"slow"}`)
+	waitOut(`{"jsonrpc":"2.0","id":"a","error":{"code":-32600,"message":"a request with this id is still in flight"}}`)
+	for i := 1; i < MaxPending; i++ {
+		write(`{"jsonrpc":"2.0","id":` + strconv.Itoa(i) + `,"method":"slow"}`)
+	}
+	write(`{"jsonrpc":"2.0","id":"over","method":"slow"}`)
+	waitOut(`{"jsonrpc":"2.0","id":"over","error":{"code":-32000,"message":"too many requests in flight; try again when some have ended"}}`)
+	close(release)
+	_ = inW.Close()
+	// The input's end cancels what still waits; the server ends cleanly.
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out.String(), `"error"`); n != 2 {
+		t.Errorf("%d errors:\n%s", n, out.String())
 	}
 }

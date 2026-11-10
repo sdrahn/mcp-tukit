@@ -139,18 +139,13 @@ func (s *Server) tools() []*tool {
 	return ts
 }
 
-func (s *Server) tool(name string) *tool {
-	for _, t := range s.tools() {
-		if t.name == name {
-			return t
-		}
-	}
-	return nil
-}
-
-func (s *Server) toolList() []map[string]any {
-	var out []map[string]any
-	for _, t := range s.tools() {
+// register builds the tools and the tools/list answer.
+func (s *Server) register() {
+	tools := s.tools()
+	s.byName = make(map[string]*tool, len(tools))
+	out := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		s.byName[t.name] = t
 		annotations := map[string]any{"title": t.title, "readOnlyHint": t.readOnly, "openWorldHint": t.openWorld}
 		if !t.readOnly {
 			annotations["destructiveHint"] = true
@@ -161,7 +156,11 @@ func (s *Server) toolList() []map[string]any {
 		out = append(out, map[string]any{"name": t.name, "title": t.title, "description": t.description,
 			"inputSchema": t.input, "outputSchema": t.output, "annotations": annotations})
 	}
-	return out
+	listing, err := json.Marshal(out)
+	if err != nil {
+		panic("tools: " + err.Error()) // schemas are literals
+	}
+	s.listing = listing
 }
 
 func object(props map[string]any, required []string) map[string]any {

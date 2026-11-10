@@ -32,7 +32,7 @@ type look struct {
 
 // peek runs argv in a new snapshot from base and discards the snapshot.
 func (s *Server) peek(ctx context.Context, base, what string, argv []string, opened chan<- string) look {
-	snap, err := s.tk.Open(ctx, base, "MCP: "+what)
+	snap, err := s.tk.Open(ctx, base, description(what))
 	if err != nil {
 		l := look{Error: fmt.Sprintf("opening a snapshot from %s: %v", base, err)}
 		s.logf("%s: %s", what, l.Error)
@@ -67,11 +67,15 @@ func (s *Server) peek(ctx context.Context, base, what string, argv []string, ope
 
 // look runs argv as peek does, under the change lock.
 func (s *Server) look(ctx context.Context, base, what string, argv []string) look {
-	return exclusive(s, ctx, base, what, func(work context.Context, opened chan<- string) look {
+	l, err := exclusive(s, ctx, base, what, func(work context.Context, opened chan<- string) look {
 		return s.peek(work, base, what, argv, opened)
 	}, func(snap string) look {
 		return look{Snapshot: snap, Running: true, Error: "the call ended first; the command goes on in snapshot " + snap + ", which is discarded when it ends"}
 	})
+	if err != nil {
+		return look{Error: err.Error()}
+	}
+	return l
 }
 
 // refresh is the result of refresh_repositories.

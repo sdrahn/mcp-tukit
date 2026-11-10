@@ -59,30 +59,35 @@ type change struct {
 
 // transact runs argv in a new snapshot from base and keeps or discards
 // the snapshot as decide says: what transactional-update does around a
-// command. It goes on when the call is cancelled, or ends first: a change
-// is finished (the snapshot closed or discarded) rather than left
-// half-done, within the configured timeout.
+// command. Once begun it goes on when the call is cancelled, or ends
+// first: a change is finished (the snapshot closed or discarded) rather
+// than left half-done, within the configured timeout.
 func (s *Server) transact(ctx context.Context, base, what string, argv []string, decide func(tukit.CallResult) outcome) map[string]any {
-	c := exclusive(s, ctx, base, what, func(work context.Context, opened chan<- string) change {
+	c, err := exclusive(s, ctx, base, what, func(work context.Context, opened chan<- string) change {
 		return s.run(work, base, what, argv, decide, opened)
 	}, func(snap string) change {
 		// Not answered (cancelled), but the change goes on to its end.
 		return change{Status: "running", Snapshot: snap, Base: base, Command: argv}
 	})
+	if err != nil {
+		return toolError("%v", err)
+	}
 	return changeResult(c)
 }
 
-// exclusive runs work, which opens a snapshot from base, in the
-// background under the change lock (one snapshot of this instance at a
-// time: each one starts from the default, and zypper's cache is shared),
-// within the configured timeout, with progress on ctx while it runs. If
-// ctx ends first, work goes on to its end and exclusive returns
-// cancelled(snapshot) at once.
-func exclusive[T any](s *Server, ctx context.Context, base, what string, work func(ctx context.Context, opened chan<- string) T, cancelled func(snap string) T) T {
+// exclusive runs work, which opens a snapshot from base, under the change
+// lock, in the background, within the configured timeout, with progress
+// on ctx while it runs. A call cancelled while it waits for the lock does
+// nothing (errNotStarted). Once work has begun it goes on to its end: if
+// ctx ends first, exclusive returns cancelled(snapshot) at once.
+func exclusive[T any](s *Server, ctx context.Context, base, what string, work func(ctx context.Context, opened chan<- string) T, cancelled func(snap string) T) (T, error) {
+	if err := s.lockChange(ctx); err != nil {
+		var zero T
+		return zero, err
+	}
 	done := make(chan T, 1)
 	opened := make(chan string, 1)
 	go func() {
-		s.change.Lock()
 		defer s.change.Unlock()
 		w, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.Timeout)
 		defer cancel()
@@ -95,20 +100,20 @@ func exclusive[T any](s *Server, ctx context.Context, base, what string, work fu
 	for {
 		select {
 		case r := <-done:
-			return r
+			return r, nil
 		case snap = <-opened:
-			mcp.Progress(ctx, fmt.Sprintf("snapshot %s opened from %s; running %s", snap, base, what))
+			mcp.Progress(ctx, fmt.Sprintf("snapshot %s opened from %s; running %s", snap, base, shorten(printable(what), maxDescription)))
 		case <-tick.C:
-			mcp.Progress(ctx, fmt.Sprintf("running %s in snapshot %s (%s)", what, snap, time.Since(start).Round(time.Second)))
+			mcp.Progress(ctx, fmt.Sprintf("running %s in snapshot %s (%s)", shorten(printable(what), maxDescription), snap, time.Since(start).Round(time.Second)))
 		case <-ctx.Done():
-			return cancelled(snap)
+			return cancelled(snap), nil
 		}
 	}
 }
 
 func (s *Server) run(ctx context.Context, base, what string, argv []string, decide func(tukit.CallResult) outcome, opened chan<- string) change {
 	c := change{Base: base, Command: argv}
-	snap, err := s.tk.Open(ctx, base, "MCP: "+what)
+	snap, err := s.tk.Open(ctx, base, description(what))
 	if err != nil {
 		c.Status, c.Error = "failed", fmt.Sprintf("opening a snapshot from %s: %v", base, err)
 		s.logf("%s: %s", what, c.Error)

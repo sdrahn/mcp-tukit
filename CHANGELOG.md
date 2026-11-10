@@ -23,6 +23,10 @@ All notable changes to mcp-server-tukit. Versions follow
   - `rollback` refuses snapshot 0; package names follow `--` on zypper's
     command line; `-zypper` must be an absolute path and the unit names
     systemd's characters.
+- **`list_updates` takes `limit`.** It returns at most 500 updates
+  unless `limit` (1 to 5000) says otherwise; `count` still tells how
+  many there are, and `truncated` that some were left out. A
+  dist-upgrade can offer thousands.
 - **Faster, smaller.** The tools and the `tools/list` answer are built
   once (a tool call no longer rebuilds every schema); `server.go` is
   split by concern into files of the same package.

@@ -84,8 +84,9 @@ func (s *Server) tools() []*tool {
 				"zypper refreshes repositories whose metadata are older than its refresh delay; refresh_repositories refreshes them now. " +
 				"On MicroOS and Tumbleweed-based systems update_system with dist-upgrade may bring more than list_updates shows.",
 			input: object(map[string]any{
-				"kind": map[string]any{"type": "string", "enum": []string{"package", "patch"}, "default": "package"},
-				"base": baseSchema,
+				"kind":  map[string]any{"type": "string", "enum": []string{"package", "patch"}, "default": "package"},
+				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxLimit, "default": defaultLimit, "description": "return at most this many updates; count always tells how many there are"},
+				"base":  baseSchema,
 			}, nil),
 			output: updateListSchema, call: s.listUpdates},
 		{name: "refresh_repositories", title: "Refresh the repositories", idempotent: true, openWorld: true,

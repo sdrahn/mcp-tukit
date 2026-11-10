@@ -167,10 +167,13 @@ type update struct {
 
 // updateList is the result of list_updates.
 type updateList struct {
-	Kind    string   `json:"kind"`
-	Base    string   `json:"base"`
-	Count   int      `json:"count"`
-	Updates []update `json:"updates"`
+	Kind string `json:"kind"`
+	Base string `json:"base"`
+	// Count is how many updates there are; Updates has at most the
+	// call's limit of them, and Truncated says so.
+	Count     int      `json:"count"`
+	Truncated bool     `json:"truncated,omitempty"`
+	Updates   []update `json:"updates"`
 	// Blocked are patches a package lock keeps back.
 	Blocked []update `json:"blocked,omitempty"`
 	// Messages are zypper's warnings and errors, such as repositories
@@ -194,25 +197,39 @@ var updateSchema = map[string]any{"type": "object", "properties": map[string]any
 }, "required": []string{"name", "version"}}
 
 var updateListSchema = map[string]any{"type": "object", "properties": map[string]any{
-	"kind":     map[string]any{"type": "string", "enum": []string{"package", "patch"}},
-	"base":     map[string]any{"type": "string"},
-	"count":    map[string]any{"type": "integer"},
-	"updates":  map[string]any{"type": "array", "items": updateSchema},
-	"blocked":  map[string]any{"type": "array", "items": updateSchema, "description": "patches kept back by a package lock"},
-	"messages": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "zypper's warnings and errors"},
+	"kind":      map[string]any{"type": "string", "enum": []string{"package", "patch"}},
+	"base":      map[string]any{"type": "string"},
+	"count":     map[string]any{"type": "integer", "description": "how many updates there are, whatever the limit"},
+	"truncated": map[string]any{"type": "boolean", "description": "updates has only the first limit of them"},
+	"updates":   map[string]any{"type": "array", "items": updateSchema},
+	"blocked":   map[string]any{"type": "array", "items": updateSchema, "description": "patches kept back by a package lock"},
+	"messages":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "zypper's warnings and errors"},
 }, "required": []string{"kind", "count", "updates"}}
 
-// maxListed bounds the updates named in the text answer; all are in the
-// structured content.
-const maxListed = 200
+// maxListed bounds the updates named in the text answer. The structured
+// content has up to the call's limit: defaultLimit unless it names one,
+// at most maxLimit (a dist-upgrade of a Tumbleweed-based system can
+// offer thousands, more than a result should carry unasked).
+const (
+	maxListed    = 200
+	defaultLimit = 500
+	maxLimit     = 5000
+)
 
 func (s *Server) listUpdates(ctx context.Context, args json.RawMessage) map[string]any {
 	var a struct {
-		Kind string `json:"kind"`
-		Base string `json:"base"`
+		Kind  string `json:"kind"`
+		Base  string `json:"base"`
+		Limit *int   `json:"limit"`
 	}
 	if err := decode(args, &a); err != nil {
 		return toolError("%v", err)
+	}
+	limit := defaultLimit
+	if a.Limit != nil {
+		if limit = *a.Limit; limit < 1 || limit > maxLimit {
+			return toolError("limit %d: must be from 1 to %d", limit, maxLimit)
+		}
 	}
 	base, err := s.base(a.Base)
 	if err != nil {
@@ -248,6 +265,9 @@ func (s *Server) listUpdates(ctx context.Context, args json.RawMessage) map[stri
 		list.Updates = []update{}
 	}
 	list.Count = len(list.Updates)
+	if list.Count > limit {
+		list.Updates, list.Truncated = list.Updates[:limit], true
+	}
 	return result(updatesText(list), list, false)
 }
 
@@ -262,10 +282,13 @@ func updatesText(list updateList) string {
 	}
 	for i, u := range list.Updates {
 		if i == maxListed {
-			fmt.Fprintf(&b, "  … and %d more (all are in the structured content)\n", list.Count-maxListed)
+			fmt.Fprintf(&b, "  … and %d more (the structured content has the first %d)\n", list.Count-maxListed, len(list.Updates))
 			break
 		}
 		b.WriteString("  " + updateLine(u) + "\n")
+	}
+	if list.Truncated {
+		fmt.Fprintf(&b, "Only the first %d of %d are returned; a higher limit (up to %d) returns more.\n", len(list.Updates), list.Count, maxLimit)
 	}
 	if len(list.Blocked) > 0 {
 		fmt.Fprintf(&b, "Kept back by a package lock: %d\n", len(list.Blocked))

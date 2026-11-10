@@ -5,6 +5,11 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+## v0.5.0 — 2026-11-10
+
+Hardening from a security review of the whole server, and a bound on
+the list of updates. Needs mcp-gateway 1.8, as 0.2 to 0.4.
+
 - **Hardening, from a security review.**
   - What a caller sends no longer shapes the journal: log lines are one
     line each, with control characters escaped, and bounded. A newline

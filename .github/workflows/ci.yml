@@ -19,8 +19,8 @@ jobs:
   go:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
       # dbus-daemon: the tukit client's tests run against a private bus.
@@ -34,8 +34,8 @@ jobs:
   selinux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: sdrahn/mcp-gateway
           ref: ${{ env.GATEWAY_REF }}
@@ -63,7 +63,7 @@ jobs:
         run: >
           zypper -n --gpg-auto-import-keys in --no-recommends
           git tar gzip rpm-build sysuser-tools systemd-rpm-macros selinux-policy-devel
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: sdrahn/mcp-gateway
           ref: ${{ env.GATEWAY_REF }}
@@ -85,7 +85,7 @@ jobs:
           rpmbuild -bb --nocheck --define "_topdir $HOME/rpmbuild" packaging/suse/mcp-gateway.spec
           mkdir ../gateway-rpms
           cp ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm ../gateway-rpms/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gateway-rpms-${{ matrix.distro }}
           path: gateway-rpms/
@@ -112,8 +112,8 @@ jobs:
         run: >
           zypper -n --gpg-auto-import-keys in --no-recommends
           git tar gzip rpm-build rpmlint sysuser-tools systemd-rpm-macros selinux-policy-devel
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: gateway-rpms-${{ matrix.distro }}
           path: gateway-rpms
@@ -188,7 +188,7 @@ jobs:
           mkdir rpms
           cp gateway-rpms/*.rpm rpms/
           xargs cp -t rpms/ </tmp/ours
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rpms-${{ matrix.distro }}
           path: rpms/
@@ -213,12 +213,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
-      - uses: open-policy-agent/setup-opa@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: open-policy-agent/setup-opa@34a30e8a924d1b03ce2cf7abe97250bbb1f332b5 # v2.2.0
         with:
           version: latest
           static: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: rpms-${{ matrix.distro }}
           path: rpms
@@ -235,7 +235,7 @@ jobs:
           IMAGE_URL: ${{ matrix.image_url }}
         run: test/vm/run-vm.sh rpms "$(command -v opa)"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vm-logs-${{ matrix.distro }}
           path: |

@@ -106,7 +106,7 @@ anything with spaces or shell characters are refused.
 |---|---|---|
 | `get_status` | no | active snapshot, default snapshot, whether a reboot is pending |
 | `list_snapshots` | no | snapshots with number, date, description, active/default |
-| `list_updates` | no | the package updates (`zypper list-updates`) or needed patches (`zypper list-patches`, with category and severity) the repositories offer, as the system would be from `base` |
+| `list_updates` | no | the package updates (`zypper list-updates`) or needed patches (`zypper list-patches`, with category and severity) the repositories offer, as the system would be from `base`; at most `limit` of them (500 unless given, up to 5000), `count` tells how many there are |
 | `refresh_repositories` | repository cache only | `zypper refresh` (`force`) |
 | `pkg_install` | yes | `zypper install` in a new snapshot (`accept_licenses`, `no_recommends`) |
 | `pkg_remove` | yes | `zypper remove` in a new snapshot (`clean_deps`) |

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -194,5 +195,41 @@ func TestListUpdatesWaitsForChange(t *testing.T) {
 	<-done
 	if r := <-listed; isError(r) {
 		t.Fatalf("list_updates: %s", text(r))
+	}
+}
+
+// limit bounds the updates returned; count stays the total.
+func TestListUpdatesLimit(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<stream><update-status version="0.6"><update-list>`)
+	for i := 0; i < 700; i++ {
+		fmt.Fprintf(&b, `<update kind="package" name="pkg%d" edition="2-1" arch="noarch" edition-old="1-1"/>`, i)
+	}
+	b.WriteString(`</update-list></update-status></stream>`)
+	for _, tc := range []struct {
+		args      string
+		returned  int
+		truncated bool
+	}{
+		{`{}`, defaultLimit, true},
+		{`{"limit":3}`, 3, true},
+		{`{"limit":700}`, 700, false},
+		{`{"limit":5000}`, 700, false},
+	} {
+		f := &fake{result: tukit.CallResult{Output: b.String()}}
+		r := call(t, New(Config{}, f), context.Background(), "list_updates", tc.args)
+		l := structured[updateList](t, r)
+		if isError(r) || l.Count != 700 || len(l.Updates) != tc.returned || l.Truncated != tc.truncated || l.Updates[0].Name != "pkg0" {
+			t.Errorf("%s: count %d, %d returned, truncated %v: %.80s", tc.args, l.Count, len(l.Updates), l.Truncated, text(r))
+		}
+		if got := strings.Contains(text(r), "Only the first"); got != tc.truncated {
+			t.Errorf("%s: text says truncated: %v", tc.args, got)
+		}
+	}
+	for _, args := range []string{`{"limit":0}`, `{"limit":-1}`, `{"limit":5001}`, `{"limit":"all"}`} {
+		f := &fake{}
+		if r := call(t, New(Config{}, f), context.Background(), "list_updates", args); !isError(r) || len(f.logged()) != 0 {
+			t.Errorf("%s: %s, calls %q", args, text(r), f.logged())
+		}
 	}
 }

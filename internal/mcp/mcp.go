@@ -90,8 +90,14 @@ func Negotiate(requested string) string {
 	return ProtocolVersions[0]
 }
 
-// MaxConcurrent bounds the requests handled at once; more wait.
-const MaxConcurrent = 8
+// MaxConcurrent bounds the requests handled at once; more wait, up to
+// MaxPending in all (handled and waiting): beyond that a request is
+// refused, so that a client cannot make the server hold work without
+// bound.
+const (
+	MaxConcurrent = 8
+	MaxPending    = 64
+)
 
 // Error is a JSON-RPC error. A Handler returning one has it sent as is;
 // any other error is sent as an internal error.
@@ -113,6 +119,9 @@ const (
 	// CodeUnsupportedVersion refuses a modern request naming a protocol
 	// version the server does not speak (MCP 2026-07-28).
 	CodeUnsupportedVersion = -32022
+	// CodeBusy refuses a request while MaxPending others are pending (a
+	// JSON-RPC server error).
+	CodeBusy = -32000
 )
 
 // Handler answers one request. ctx ends when the client cancels it or the
@@ -273,8 +282,24 @@ func (s *Server) dispatch(line []byte) {
 	}
 	key := string(m.ID)
 	s.mu.Lock()
-	s.inflight[key] = cancel
+	_, dup := s.inflight[key]
+	busy := len(s.inflight) >= MaxPending
+	if !dup && !busy {
+		s.inflight[key] = cancel
+	}
 	s.mu.Unlock()
+	switch {
+	case dup:
+		// Its answer and its cancellation could not be told from the
+		// first one's.
+		cancel()
+		s.send(message{ID: m.ID, Error: &Error{Code: CodeInvalidRequest, Message: "a request with this id is still in flight"}})
+		return
+	case busy:
+		cancel()
+		s.send(message{ID: m.ID, Error: &Error{Code: CodeBusy, Message: "too many requests in flight; try again when some have ended"}})
+		return
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()

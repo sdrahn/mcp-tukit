@@ -148,7 +148,9 @@ func TestStdioModern(t *testing.T) {
 
 func TestFlags(t *testing.T) {
 	never := func() (tukit.Backend, func(), error) { t.Fatal("connected"); return nil, nil, nil }
-	for _, args := range [][]string{{"-base", "latest"}, {"-timeout", "1s"}, {"extra"}, {"-reboot-unit", "reboot.target"}, {"-reboot-unit", "../x.service"}, {"-apply-unit", "apply.target"}} {
+	for _, args := range [][]string{{"-base", "latest"}, {"-timeout", "1s"}, {"extra"}, {"-reboot-unit", "reboot.target"}, {"-reboot-unit", "../x.service"}, {"-apply-unit", "apply.target"},
+		{"-reboot-unit", "a b.service"}, {"-apply-unit", "x;y.service"}, {"-apply-unit", "x\n.service"},
+		{"-zypper", "zypper"}, {"-zypper", "/usr/bin/../bin/zypper"}} {
 		if code := run(args, strings.NewReader(""), io.Discard, io.Discard, never); code != 2 {
 			t.Errorf("%v: exit %d", args, code)
 		}

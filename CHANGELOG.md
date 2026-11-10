@@ -5,6 +5,10 @@ All notable changes to mcp-server-tukit. Versions follow
 
 ## Unreleased
 
+- **Workflows pin their actions by commit.** The GitHub Actions the CI
+  and release workflows use are named by commit SHA, with the version
+  in a comment, instead of by a tag that can be moved.
+
 ## v0.5.0 — 2026-11-10
 
 Hardening from a security review of the whole server, and a bound on
